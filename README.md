@@ -25,65 +25,51 @@ This server uses the high-performance [FastAPI](https://fastapi.tiangolo.com/) f
 
 ## Project Structure
 
+The project follows this basic structure:
 
+```plaintext
 tpc-server/
-├── .venv/                  # Virtual environment (optional)
-├── api_definition.md       # API specification details (supplementary)
-├── thoughts.log            # Append-only thoughts storage
-├── plans.log               # Append-only plans storage
-├── changelog.log           # Append-only changelog storage
-├── main.py                 # FastAPI application code
-└── requirements.txt        # Python dependencies
+  .venv/                  # Virtual environment (recommended)
+  api_definition.md       # API specification details (supplementary)
+  thoughts.log            # Append-only thoughts storage
+  plans.log               # Append-only plans storage
+  changelog.log           # Append-only changelog storage
+  main.py                 # FastAPI application code
+  requirements.txt        # Python dependencies
 
-## Setup and Installation
+Setup and Installation
+ * Clone or Download: Get the project files into a local directory (e.g., tpc-server).
+ * Navigate to Directory:
+   cd tpc-server
 
-1.  **Clone or Download:** Get the project files into a local directory (e.g., `tpc-server`).
-2.  **Navigate to Directory:**
-    ```bash
-    cd tpc-server
-    ```
-3.  **Create Virtual Environment** (Recommended):
-    ```bash
-    # Windows
-    python -m venv .venv
-    .\.venv\Scripts\activate
+ * Create Virtual Environment (Recommended):
+   # Windows
+python -m venv .venv
+.\.venv\Scripts\activate
 
-    # Linux / macOS
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-4.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
 
-## Running the Server
+ * Install Dependencies:
+   pip install -r requirements.txt
 
+Running the Server
 You can run the server in two main modes:
+ * Development Mode (with auto-reload):
+   Ideal for development as the server restarts automatically when code changes are detected.
+   uvicorn main:app --reload --port 8000
 
-* **Development Mode (with auto-reload):**
-    Ideal for development as the server restarts automatically when code changes are detected.
-    ```bash
-    uvicorn main:app --reload --port 8000
-    ```
-    The server will typically be available at `http://127.0.0.1:8000`.
+   The server will typically be available at http://127.0.0.1:8000.
+ * Production-like Mode (multiple workers):
+   Runs the server on 0.0.0.0 (accessible externally) with multiple worker processes for better concurrency handling.
+   uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 
-* **Production-like Mode (multiple workers):**
-    Runs the server on `0.0.0.0` (accessible externally) with multiple worker processes for better concurrency handling.
-    ```bash
-    uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-    ```
-    *(Note: Adjust `--workers` count based on your CPU cores. Uvicorn's multi-process mode on Windows has different characteristics than Gunicorn on Linux/macOS).*
-
-Once running, you can access the interactive API documentation at `http://<server_address>:8000/docs`.
-
-## API Usage Examples
-
-You can interact with the API using tools like `curl`, `httpie`, Postman, or programmatically.
-
-**Using `curl`:**
-
-```bash
+   (Note: Adjust --workers count based on your CPU cores. Uvicorn's multi-process mode on Windows has different characteristics than Gunicorn on Linux/macOS).
+Once running, you can access the interactive API documentation at http://<server_address>:8000/docs.
+API Usage Examples
+You can interact with the API using tools like curl, httpie, Postman, or programmatically.
+Using curl:
 # Log a thought
 curl -X POST "http://localhost:8000/thoughts" -H "Content-Type: application/json" \
 -d '{"content": "Need to investigate alternative storage options.", "uncertainty_flag": true}'
@@ -142,7 +128,3 @@ Contributing
 (Optional: Add contribution guidelines here if you plan to accept contributions).
 License
 (Optional: Specify your license, e.g., MIT License, Apache 2.0, or state if it's proprietary).
-
-Save this content as `README.md` in the root of your `tpc-server` project directory. It provides a comprehensive overview for anyone looking to understand or use your TPC Server.
-
-
