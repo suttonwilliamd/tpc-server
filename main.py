@@ -1,278 +1,343 @@
+# File: main.py
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone # Import timezone
 from enum import Enum
-import json
-from filelock import FileLock, Timeout # Import cross-platform lock
-import uvicorn
 import uuid
 import os
+import databases # <-- ADDED
+import sqlalchemy # <-- ADDED
+from contextlib import asynccontextmanager # For lifespan management in newer FastAPI
 
-app = FastAPI(
-    title="TPC Server v1.0.2 (Windows Compatible)",
-    description=(
-        "Thoughts-Plans-Changelog (TPC) Server for AI Collaboration. "
-        "Uses append-only files with cross-platform file locking ('filelock' library). "
-        "The API structure serves as the v1.0 'Model Context Protocol' interface. "
-        "Note: Read operations may be slow on very large logs."
-    ),
-    version="1.0.2" # Incremented patch version for locking change
+# --- Configuration & Database Setup ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Use SQLite. The database file will be created in the same directory.
+# The 'sqlite+aiosqlite' tells SQLAlchemy to use the async aiosqlite driver.
+DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(BASE_DIR, 'tpc_data.db')}"
+
+# Create the database instance and metadata object
+database = databases.Database(DATABASE_URL)
+metadata = sqlalchemy.MetaData()
+
+# --- Define Database Tables (using SQLAlchemy Core) ---
+thoughts_table = sqlalchemy.Table(
+    "thoughts",
+    metadata,
+    sqlalchemy.Column("id", sqlalchemy.String, primary_key=True),
+    sqlalchemy.Column("timestamp", sqlalchemy.DateTime, nullable=False),
+    sqlalchemy.Column("content", sqlalchemy.String, nullable=False),
+    sqlalchemy.Column("plan_id", sqlalchemy.String, nullable=True),
+    sqlalchemy.Column("uncertainty_flag", sqlalchemy.Boolean, default=False),
 )
 
-# --- Configuration & File Paths ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-THOUGHTS_FILE = os.path.join(BASE_DIR, "thoughts.log")
-PLANS_FILE = os.path.join(BASE_DIR, "plans.log")
-CHANGELOG_FILE = os.path.join(BASE_DIR, "changelog.log")
+plans_table = sqlalchemy.Table(
+    "plans",
+    metadata,
+    sqlalchemy.Column("id", sqlalchemy.String, primary_key=True),
+    sqlalchemy.Column("timestamp", sqlalchemy.DateTime, nullable=False),
+    sqlalchemy.Column("description", sqlalchemy.String, nullable=False),
+    sqlalchemy.Column("status", sqlalchemy.String, default="todo"), # Store enum as string
+    # SQLite doesn't have a native array type, store as JSON string
+    sqlalchemy.Column("dependencies", sqlalchemy.String, default="[]"),
+)
 
-# Lock file timeout (e.g., 10 seconds) to prevent indefinite waits
-LOCK_TIMEOUT = 10
+changelog_table = sqlalchemy.Table(
+    "changelog",
+    metadata,
+    sqlalchemy.Column("id", sqlalchemy.String, primary_key=True),
+    sqlalchemy.Column("timestamp", sqlalchemy.DateTime, nullable=False),
+    sqlalchemy.Column("plan_id", sqlalchemy.String, nullable=False), # Assuming plan_id is mandatory
+    sqlalchemy.Column("description", sqlalchemy.String, nullable=False),
+    # SQLite doesn't have a native array type, store as JSON string
+    sqlalchemy.Column("thought_ids", sqlalchemy.String, default="[]"),
+)
 
-# --- Enums and Models ---
-# (Models: PlanStatus, ThoughtCreate, PlanCreate, ChangeLogCreate, Thought, Plan, ChangeLog remain unchanged from previous revision)
+# --- Enums and Pydantic Models (Mostly Unchanged) ---
+# Models are used for API input/output validation & serialization
 class PlanStatus(str, Enum):
     TODO = "todo"
     IN_PROGRESS = "in-progress"
     BLOCKED = "blocked"
     DONE = "done"
 
-# Input models (for POST requests)
+# Input models
 class ThoughtCreate(BaseModel):
     content: str
-    plan_id: str | None = None # Link to a plan (optional)
+    plan_id: str | None = None
     uncertainty_flag: bool = False
 
 class PlanCreate(BaseModel):
     description: str
     status: PlanStatus = PlanStatus.TODO
-    dependencies: list[str] = [] # List of Plan IDs this depends on
+    dependencies: list[str] = Field(default_factory=list) # Use Field for default list
 
 class ChangeLogCreate(BaseModel):
-    plan_id: str # Which plan this change relates to
+    plan_id: str
     description: str
-    thought_ids: list[str] = [] # Link relevant thoughts
+    thought_ids: list[str] = Field(default_factory=list) # Use Field for default list
 
-# Output models (including server-generated fields)
+# Output models
 class Thought(ThoughtCreate):
-    id: str = Field(..., description="Unique identifier for the thought")
-    timestamp: datetime = Field(..., description="Timestamp of creation")
+    id: str
+    timestamp: datetime
 
 class Plan(PlanCreate):
-    id: str = Field(..., description="Unique identifier for the plan")
-    timestamp: datetime = Field(..., description="Timestamp of creation")
+    id: str
+    timestamp: datetime
+    # Override dependencies to ensure it's parsed correctly from DB JSON string if needed
+    # Pydantic V2 handles JSON parsing more automatically in some cases,
+    # but explicit handling might be needed depending on exact DB interaction.
+    # For now, keep as is, assuming 'databases' library handles JSON string correctly.
 
 class ChangeLog(ChangeLogCreate):
-    id: str = Field(..., description="Unique identifier for the changelog entry")
-    timestamp: datetime = Field(..., description="Timestamp of creation")
+    id: str
+    timestamp: datetime
+    # Similar note for thought_ids as for plan dependencies
 
-# --- Helper Functions ---
-
-def get_lock_path(file_path: str) -> str:
-    """Generates a corresponding .lock file path."""
-    return file_path + ".lock"
-
-def append_to_file(file_path: str, data: dict):
-    """
-    Safely appends a JSON line using cross-platform file locking.
-    Creates lock file alongside the data file.
-    """
-    lock_path = get_lock_path(file_path)
-    lock = FileLock(lock_path, timeout=LOCK_TIMEOUT)
-
-    try:
-        with lock: # Acquires exclusive lock
-            # Check/create file (though 'a' mode often handles this)
-            if not os.path.exists(file_path):
-                 open(file_path, 'a').close() # Ensure file exists before writing
-
-            with open(file_path, 'a') as f:
-                f.write(json.dumps(data, default=str) + '\n') # Use default=str for datetime
-
-    except Timeout:
-        print(f"Error: Could not acquire lock for writing to {file_path} within {LOCK_TIMEOUT} seconds.")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not acquire file lock for writing, server might be busy. Path: {file_path}"
-        )
-    except IOError as e:
-        print(f"Error writing to file {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to write to log file: {file_path}"
-        )
-    except Exception as e:
-        print(f"Unexpected error during file append {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while processing the log file append."
-        )
+# --- Lifespan Management (Connect/Disconnect DB) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # On startup:
+    await database.connect()
+    print(f"Connected to database: {DATABASE_URL}")
+    # Create tables if they don't exist
+    engine = sqlalchemy.create_engine(DATABASE_URL.replace("+aiosqlite", "")) # Use sync engine for metadata creation
+    metadata.create_all(bind=engine)
+    print("Database tables checked/created.")
+    yield # API is ready to serve requests
+    # On shutdown:
+    await database.disconnect()
+    print("Disconnected from database.")
 
 
-def read_log_file(file_path: str) -> list[dict]:
-    """
-    Reads a log file safely using cross-platform file locking,
-    parsing each line as JSON.
-    """
-    if not os.path.exists(file_path):
-        return [] # Return empty list if log file doesn't exist yet
-
-    lock_path = get_lock_path(file_path)
-    lock = FileLock(lock_path, timeout=LOCK_TIMEOUT)
-    entries = []
-
-    try:
-        with lock: # Acquires exclusive lock (simplest, ensures read consistency)
-                   # filelock primarily provides exclusive locks easily.
-                   # Shared read locks are more complex/platform-dependent.
-            with open(file_path, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                             entries.append(json.loads(line))
-                        except json.JSONDecodeError:
-                             print(f"Warning: Skipping malformed line in {file_path}: {line.strip()}")
-    except Timeout:
-        print(f"Error: Could not acquire lock for reading {file_path} within {LOCK_TIMEOUT} seconds.")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not acquire file lock for reading, server might be busy. Path: {file_path}"
-        )
-    except IOError as e:
-        print(f"Error reading file {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read log file: {file_path}"
-        )
-    except Exception as e:
-        print(f"Unexpected error during file read {file_path}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while reading the log file."
-        )
-    return entries
+# --- FastAPI Application ---
+app = FastAPI(
+    title="TPC Server v1.1.0 (SQLite Backend)",
+    description=(
+        "Thoughts-Plans-Changelog (TPC) Server for AI Collaboration. "
+        "Uses SQLite database via SQLAlchemy and 'databases' library for async access. "
+        "The API structure serves as the v1.1 'Model Context Protocol' interface."
+    ),
+    version="1.1.0", # Incremented minor version for backend change
+    lifespan=lifespan # Use lifespan context manager
+)
 
 
-def find_item_in_log(file_path: str, item_id: str) -> dict | None:
-    """Reads a log file (using locking) and finds the latest entry matching the ID."""
-    # Reads the entire file - inefficient for large logs, acceptable for v1.0
-    entries = read_log_file(file_path) # read_log_file now handles locking
-    # Iterate in reverse for potentially faster finding
-    for entry in reversed(entries):
-        if entry.get("id") == item_id:
-            return entry
-    return None
+# --- Helper Function (Replaced File IO with DB Interaction) ---
+# No complex helpers needed now, logic is within endpoints.
+# We might add functions later to map DB rows to Pydantic models if needed,
+# but 'databases' often returns dict-like rows compatible with Pydantic.
 
-# --- API Endpoints ---
-# (Endpoints: POST /thoughts, GET /thoughts, GET /thoughts/{id},
-#  POST /plans, GET /plans, GET /plans/{id},
-#  POST /changelog, GET /changelog, GET /changelog/{id} remain unchanged functionally)
+
+# --- API Endpoints (Refactored for SQLite) ---
 
 # Thoughts
 @app.post("/thoughts", response_model=Thought, status_code=status.HTTP_201_CREATED)
-def create_thought(thought_in: ThoughtCreate):
+async def create_thought(thought_in: ThoughtCreate):
     """Log a new thought, rationale, or decision."""
-    thought_data = Thought(
-        id=f"th_{uuid.uuid4()}",
-        timestamp=datetime.utcnow(),
+    thought_id = f"th_{uuid.uuid4()}"
+    timestamp = datetime.now(timezone.utc) # Use timezone-aware UTC time
+
+    query = thoughts_table.insert().values(
+        id=thought_id,
+        timestamp=timestamp,
+        content=thought_in.content,
+        plan_id=thought_in.plan_id,
+        uncertainty_flag=thought_in.uncertainty_flag
+    )
+    try:
+        await database.execute(query)
+    except Exception as e:
+        # Basic error handling, log the error for debugging
+        print(f"Database error creating thought: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not save thought to database.")
+
+    # Return the created thought object
+    return Thought(
+        id=thought_id,
+        timestamp=timestamp,
         **thought_in.dict()
     )
-    append_to_file(THOUGHTS_FILE, thought_data.dict())
-    return thought_data
 
 @app.get("/thoughts", response_model=list[Thought])
-def get_thoughts():
+async def get_thoughts():
     """Retrieve all logged thoughts."""
-    return read_log_file(THOUGHTS_FILE)
+    query = thoughts_table.select()
+    try:
+        results = await database.fetch_all(query)
+        # Convert DB rows (which are dict-like) to Pydantic models
+        # Note: Timestamps might need parsing if not automatically handled
+        return [Thought(**dict(row)) for row in results]
+    except Exception as e:
+        print(f"Database error fetching thoughts: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve thoughts from database.")
+
 
 @app.get("/thoughts/{thought_id}", response_model=Thought)
-def get_thought(thought_id: str):
+async def get_thought(thought_id: str):
     """Retrieve a specific thought by its ID."""
-    thought = find_item_in_log(THOUGHTS_FILE, thought_id)
-    if thought is None:
+    query = thoughts_table.select().where(thoughts_table.c.id == thought_id)
+    try:
+        result = await database.fetch_one(query)
+    except Exception as e:
+        print(f"Database error fetching thought {thought_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve thought from database.")
+
+    if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thought not found")
-    return thought
+    return Thought(**dict(result))
+
 
 # Plans
 @app.post("/plans", response_model=Plan, status_code=status.HTTP_201_CREATED)
-def create_plan(plan_in: PlanCreate):
+async def create_plan(plan_in: PlanCreate):
     """Define a new plan."""
-    plan_data = Plan(
-        id=f"pl_{uuid.uuid4()}",
-        timestamp=datetime.utcnow(),
+    plan_id = f"pl_{uuid.uuid4()}"
+    timestamp = datetime.now(timezone.utc)
+    # Convert list of dependencies to JSON string for SQLite storage
+    dependencies_json = json.dumps(plan_in.dependencies)
+
+    query = plans_table.insert().values(
+        id=plan_id,
+        timestamp=timestamp,
+        description=plan_in.description,
+        status=plan_in.status.value, # Store enum value
+        dependencies=dependencies_json # Store as JSON string
+    )
+    try:
+        await database.execute(query)
+    except Exception as e:
+        print(f"Database error creating plan: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not save plan to database.")
+
+    return Plan(
+        id=plan_id,
+        timestamp=timestamp,
         **plan_in.dict()
     )
-    append_to_file(PLANS_FILE, plan_data.dict())
-    return plan_data
 
 @app.get("/plans", response_model=list[Plan])
-def get_plans():
+async def get_plans():
     """Retrieve all defined plans."""
-    return read_log_file(PLANS_FILE)
+    query = plans_table.select()
+    try:
+        results = await database.fetch_all(query)
+        # Need to parse JSON string back to list for 'dependencies'
+        plans = []
+        for row in results:
+            row_dict = dict(row)
+            try:
+                row_dict['dependencies'] = json.loads(row_dict['dependencies'])
+            except (json.JSONDecodeError, TypeError):
+                 row_dict['dependencies'] = [] # Handle potential errors or nulls
+            plans.append(Plan(**row_dict))
+        return plans
+    except Exception as e:
+        print(f"Database error fetching plans: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve plans from database.")
 
 @app.get("/plans/{plan_id}", response_model=Plan)
-def get_plan(plan_id: str):
+async def get_plan(plan_id: str):
     """Retrieve a specific plan by its ID."""
-    plan = find_item_in_log(PLANS_FILE, plan_id)
-    if plan is None:
+    query = plans_table.select().where(plans_table.c.id == plan_id)
+    try:
+        result = await database.fetch_one(query)
+    except Exception as e:
+        print(f"Database error fetching plan {plan_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve plan from database.")
+
+    if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
-    return plan
+
+    result_dict = dict(result)
+    try:
+        result_dict['dependencies'] = json.loads(result_dict['dependencies'])
+    except (json.JSONDecodeError, TypeError):
+         result_dict['dependencies'] = []
+    return Plan(**result_dict)
 
 # Changelog
 @app.post("/changelog", response_model=ChangeLog, status_code=status.HTTP_201_CREATED)
-def log_change(change_in: ChangeLogCreate):
+async def log_change(change_in: ChangeLogCreate):
     """Record a change linked to a plan and optionally thoughts."""
-    change_data = ChangeLog(
-        id=f"cl_{uuid.uuid4()}",
-        timestamp=datetime.utcnow(),
+    change_id = f"cl_{uuid.uuid4()}"
+    timestamp = datetime.now(timezone.utc)
+    # Convert list of thought IDs to JSON string
+    thought_ids_json = json.dumps(change_in.thought_ids)
+
+    query = changelog_table.insert().values(
+        id=change_id,
+        timestamp=timestamp,
+        plan_id=change_in.plan_id,
+        description=change_in.description,
+        thought_ids=thought_ids_json # Store as JSON string
+    )
+    try:
+        await database.execute(query)
+    except Exception as e:
+        print(f"Database error creating changelog: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not save changelog entry to database.")
+
+    return ChangeLog(
+        id=change_id,
+        timestamp=timestamp,
         **change_in.dict()
     )
-    append_to_file(CHANGELOG_FILE, change_data.dict())
-    return change_data
 
 @app.get("/changelog", response_model=list[ChangeLog])
-def get_changelog():
+async def get_changelog():
     """Retrieve all changelog entries."""
-    return read_log_file(CHANGELOG_FILE)
+    query = changelog_table.select()
+    try:
+        results = await database.fetch_all(query)
+         # Need to parse JSON string back to list for 'thought_ids'
+        changelogs = []
+        for row in results:
+            row_dict = dict(row)
+            try:
+                row_dict['thought_ids'] = json.loads(row_dict['thought_ids'])
+            except (json.JSONDecodeError, TypeError):
+                 row_dict['thought_ids'] = []
+            changelogs.append(ChangeLog(**row_dict))
+        return changelogs
+    except Exception as e:
+        print(f"Database error fetching changelogs: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve changelog entries from database.")
 
 @app.get("/changelog/{change_id}", response_model=ChangeLog)
-def get_change(change_id: str):
+async def get_change(change_id: str):
     """Retrieve a specific changelog entry by its ID."""
-    change = find_item_in_log(CHANGELOG_FILE, change_id)
-    if change is None:
+    query = changelog_table.select().where(changelog_table.c.id == change_id)
+    try:
+        result = await database.fetch_one(query)
+    except Exception as e:
+        print(f"Database error fetching changelog {change_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not retrieve changelog entry from database.")
+
+    if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Changelog entry not found")
-    return change
+
+    result_dict = dict(result)
+    try:
+        result_dict['thought_ids'] = json.loads(result_dict['thought_ids'])
+    except (json.JSONDecodeError, TypeError):
+        result_dict['thought_ids'] = []
+    return ChangeLog(**result_dict)
 
 
-# --- Main Execution ---
+# --- Main Execution (for running directly) ---
 if __name__ == "__main__":
-    # Create log files if they don't exist on startup (no locking needed here)
-    for log_file in [THOUGHTS_FILE, PLANS_FILE, CHANGELOG_FILE]:
-        if not os.path.exists(log_file):
-            try:
-                open(log_file, 'a').close()
-                print(f"Created log file: {log_file}")
-            except IOError as e:
-                 print(f"Error creating log file {log_file}: {e}. Please check permissions.")
-                 # Decide if you want to exit or continue
-                 # exit(1)
+    # NOTE: The 'lifespan' context manager handles DB connection/table creation.
+    # No need to manually check/create log files here anymore.
 
-    # --- How to Run ---
-    # Development (Windows/Linux/Mac - with auto-reload):
-    # uvicorn main:app --reload --port 8000
-    #
-    # Production-like (Windows/Linux/Mac - multiple workers):
-    # uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-    # Note: Uvicorn's multi-process worker mode on Windows has limitations
-    # compared to Gunicorn on Linux. Consider alternatives like Hypercorn
-    # for more advanced Windows ASGI deployment if needed later.
-
-    # Default run command if script is executed directly
-    print("Starting TPC Server...")
+    # Default run command if script is executed directly (mainly for debugging)
+    # It's better to run via the uvicorn command line specified in the README.
+    print("Starting TPC Server with SQLite backend...")
     print("Run modes:")
     print("  Development: uvicorn main:app --reload --port 8000")
     print("  Production-like: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4")
-    # uvicorn.run(app, host="0.0.0.0", port=8000) # Keep default uvicorn run simple
-    # Better to run via command line as shown above
-    # For direct execution, let's run in dev mode:
+
+    import uvicorn
+    # Run in development mode if executed directly
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
 
