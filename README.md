@@ -1,3 +1,6 @@
+# Heads up, this is AI slop. I wrote none of this code myself and haven't even run it yet. Good luck
+
+
 # TPC Server - Thoughts, Plans, Changelog Server (v1.0.2)
 
 A simple, efficient server designed to log Thoughts, Plans, and Changelog entries associated with a software development project. It provides a structured way to capture project context, rationale, and history, primarily intended for consumption by AI coding assistants or other development tools via the "Model Context Protocol" (MCP) API interface.
