@@ -1,4 +1,4 @@
-# Heads up, this is AI slop. I wrote none of this code myself and haven't even run it yet. Good luck
+# Heads up, this is AI slop. I wrote none of this code myself. Good luck
 
 # TPC Server - Thoughts, Plans, Changelog Server (v1.1.0 - SQLite Backend)
 
