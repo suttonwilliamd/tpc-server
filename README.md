@@ -4,47 +4,47 @@
 
 A server designed to log Thoughts, Plans, and Changelog (TPC) entries associated with a software development project. It provides a structured way to capture project context, rationale, and history, primarily intended for consumption by AI coding assistants or other development tools via the **Model Context Protocol (MCP)** interface.
 
-This version utilizes the **FastMCP** framework (`mcp.server.fastmcp`) and leverages **SQLAlchemy Core with its native asyncio extension** (`sqlalchemy.ext.asyncio`) for high-performance, asynchronous database interactions with an **SQLite** backend (`tpc_data.db`). Data is stored relationally using explicit join tables for dependencies and links.
+This improved version utilizes the **FastMCP** framework (`mcp.server.fastmcp`) and leverages **SQLAlchemy Core with its native asyncio extension** (`sqlalchemy.ext.asyncio`) for high-performance, asynchronous database interactions with an **SQLite** backend (`tpc_data.db`). Data is stored relationally using explicit join tables for dependencies and links.
 
 ## Key Features
 
-* **Model Context Protocol (MCP) Interface:** Exposes functionality through MCP `tools` (actions) and `resources` (data retrieval) rather than traditional REST endpoints.
-* **SQLAlchemy 2.0 Native Async:** Uses modern SQLAlchemy for fully asynchronous database operations with `asyncio`, enhancing performance and concurrency handling.
-* **SQLite Relational Backend:** Data is stored locally in `tpc_data.db` with a relational schema (using foreign keys and join tables like `plan_dependencies`, `changelog_thoughts`).
-* **FastMCP Framework:** Built upon the `mcp.server.fastmcp` library for defining and serving MCP tools and resources.
-* **Structured Logging:** Dedicated MCP tools for logging Thoughts (`create_thought`), Plans (`create_plan`), and Changelog entries (`log_change`).
-* **Data Retrieval Resources:** MCP resources available for fetching all or specific thoughts (`tpc://thoughts`), plans (`tpc://plans`), and changelog entries (`tpc://changelog`).
-* **Pydantic Validation:** Leverages Pydantic for defining data models (`ThoughtModel`, `PlanModel`, `ChangeLogModel`) and ensuring data integrity.
-* **UUID Identifiers:** Automatically generates unique, prefixed UUIDs (`th_`, `pl_`, `cl_`) for all entries.
-* **Automatic DB Initialization:** Creates necessary SQLite tables on application startup via the lifespan manager.
-* **Async Operations:** Fully asynchronous codebase using Python's `async`/`await`.
-* **File-based Logging:** Server errors and info logs are written to `mcp_server_errors.log`.
+* **Generic Repository Pattern:** Uses a type-parameterized `GenericRepository<T>` base class that reduces code duplication for common CRUD operations.
+* **Model Context Protocol (MCP) Interface:** Exposes functionality through MCP `tools` (actions) and `resources` (data retrieval).
+* **SQLAlchemy 2.0 Native Async:** Uses modern SQLAlchemy for fully asynchronous database operations with `asyncio`.
+* **SQLite Relational Backend:** Data is stored locally in `tpc_data.db` with proper foreign key relationships.
+* **Optimized Database Access:** Uses batch operations, efficient JOINs, and connection pool tuning to reduce database round-trips.
+* **Strong Type Validation:** Returns properly validated Pydantic models rather than raw dictionaries.
+* **Database Indexing:** Adds appropriate indexes on frequently queried columns for improved performance.
+* **Configurable Database URL:** Uses environment variables with sensible defaults for database configuration.
+* **Proper Transaction Management:** Consistent use of context managers for session management.
+* **Enhanced Error Handling:** Provides context-specific error messages with improved logging.
+* **Time-Ordered UUIDs:** Uses UUID7 format for chronologically sortable identifiers.
+* **Comprehensive Logging:** Includes trace-level logging for debugging operations.
 
 ## Technology Stack
 
-* **Python:** (Assumed 3.8+ for asyncio features)
+* **Python:** (3.8+ for asyncio features)
 * **Core Framework:** FastMCP (`mcp.server.fastmcp`)
 * **Database ORM/Toolkit:** SQLAlchemy Core (`>=2.0` recommended)
 * **Async DB Access:** SQLAlchemy `ext.asyncio`
 * **Database Driver:** `aiosqlite` (for async SQLite)
 * **Database:** SQLite
 * **Data Validation:** Pydantic
+* **UUID Library:** `uuid6` for time-ordered UUIDs
 * **ASGI Server:** Uvicorn (or similar, required to run the FastMCP application)
 * **Logging:** Python Standard `logging` module
 
 ## Project Structure
 
-
+```
 [your-project-root]/
 ├── .venv/                  # Virtual environment (recommended)
 ├── main.py                 # Main FastMCP application code, defines tools & resources
 ├── tpc_data.db             # SQLite database file (created automatically)
 ├── mcp_server_errors.log   # Log file for server messages/errors
 ├── requirements.txt        # Python dependencies
-├── README.md               # This file
-└── mcp/                    # Directory assumed for the mcp library installation
-└── server/
-└── fastmcp.py      # (Illustrative location of FastMCP)
+└── README.md               # This file
+```
 
 ## Setup and Installation
 
@@ -63,11 +63,10 @@ This version utilizes the **FastMCP** framework (`mcp.server.fastmcp`) and lever
     source .venv/bin/activate
     ```
 3.  **Install Dependencies:**
-    Ensure your `requirements.txt` includes `sqlalchemy[asyncio]`, `aiosqlite`, `pydantic`, `mcp.server.fastmcp` (or however the MCP library is packaged), and `uvicorn[standard]`.
+    Ensure your `requirements.txt` includes `sqlalchemy[asyncio]`, `aiosqlite`, `pydantic`, `mcp.server.fastmcp`, `uvicorn[standard]`, and `uuid6`.
     ```bash
     pip install -r requirements.txt
     ```
-    *(Note: The exact package name for `FastMCP` might differ; adjust `requirements.txt` accordingly.)*
 4.  **Database:** The `tpc_data.db` SQLite file will be created automatically in the project directory when the server runs for the first time.
 
 ## Running the Server
@@ -80,19 +79,110 @@ Ideal for development; the server restarts automatically on code changes.
 
 ```bash
 uvicorn main:mcp --reload --port [your_port, e.g., 8000] --host 127.0.0.1
+```
 
-Production-like Mode
+### Production-like Mode
+
 Runs the server binding to all interfaces.
-uvicorn main:mcp --host 0.0.0.0 --port [your_port, e.g., 8000]
-# Consider --workers 1 for SQLite write safety, unless native async handles it robustly.
-# uvicorn main:mcp --host 0.0.0.0 --port 8000 --workers 1
 
- * The server will start, and the tpc_data.db file and tables will be created if they don't exist.
- * Logs will be written to mcp_server_errors.log.
- * Important: This server communicates via the Model Context Protocol (MCP). You cannot interact with it using standard HTTP tools like curl or a web browser pointed at REST endpoints. You need an MCP client.
-MCP Interface Usage Examples
-Interaction with this server requires an MCP client library compatible with FastMCP. The examples below are conceptual pseudo-code demonstrating how such a client might be used. Replace MCPClient, address:port, and method names with the actual implementation details of your MCP client.
-Invoking Tools (Actions)
+```bash
+uvicorn main:mcp --host 0.0.0.0 --port [your_port, e.g., 8000]
+# Consider --workers 1 for SQLite write safety
+# uvicorn main:mcp --host 0.0.0.0 --port 8000 --workers 1
+```
+
+* The server will start, and the tpc_data.db file and tables will be created if they don't exist.
+* Logs will be written to mcp_server_errors.log.
+* Important: This server communicates via the Model Context Protocol (MCP). You cannot interact with it using standard HTTP tools like curl or a web browser pointed at REST endpoints. You need an MCP client.
+
+## AI Agent TPC Logging Enforcement
+
+Here are three distinct approaches to encourage AI coding agents to properly log changes, thoughts, and plans to the TPC server:
+
+### 1. MCP Context Protocol Contract
+
+Implement a formal "contract" in the MCP context that requires AI agents to report TPC entries before receiving certain information or executing specific operations:
+
+```python
+# In your MCP context setup:
+def get_context_for_ai_agent():
+    return {
+        "contract": {
+            "before_code_access": ["must_log_thought", "must_create_plan"],
+            "before_code_modification": ["must_log_change"],
+            "validation_functions": {
+                # Reference to functions that check if proper TPC logging occurred
+            }
+        },
+        # Rest of context...
+    }
+```
+
+This enforces a pattern where AI agents must acknowledge the contract and provide IDs of TPC entries they've created before accessing sensitive operations or information. The system can validate that proper logging has occurred by checking the referenced IDs against the TPC database.
+
+### 2. Git Hook Integration
+
+Create a pre-commit Git hook that checks for corresponding TPC entries before allowing code changes to be committed:
+
+```bash
+#!/bin/bash
+# .git/hooks/pre-commit
+# Make this executable with: chmod +x .git/hooks/pre-commit
+
+# Get list of modified files
+modified_files=$(git diff --cached --name-only)
+
+# Query the TPC server for recent changelog entries
+recent_changes=$(curl -s http://localhost:8000/mcp/changelog/recent)
+
+# Check if changes have corresponding TPC entries
+for file in $modified_files; do
+  if ! echo "$recent_changes" | grep -q "$file"; then
+    echo "ERROR: Missing TPC changelog entry for $file"
+    echo "Please log your changes using the TPC server before committing."
+    exit 1
+  fi
+done
+```
+
+This approach requires AI agents that are capable of Git operations to also interact with the TPC server or their commits will be rejected. The hook could be further customized to look for specific patterns within the changelog entries to ensure quality logging.
+
+### 3. Reward-Based Model Fine-Tuning
+
+For AI agents that use reinforcement learning from human feedback (RLHF) or similar techniques, implement a reward system that positively reinforces proper TPC usage:
+
+```python
+# Pseudocode for reward system
+def evaluate_agent_performance(agent_session):
+    tpc_usage_score = 0
+    
+    # Check for thought logging before problem solving
+    if agent_session.has_thoughts_before_solution:
+        tpc_usage_score += 10
+        
+    # Check for plan creation with reasonable steps
+    if agent_session.has_detailed_plans:
+        tpc_usage_score += 15
+        
+    # Check for changelog entries that map to actual code changes
+    if agent_session.has_accurate_changelogs:
+        tpc_usage_score += 20
+        
+    # Apply this score to the agent's overall reward function
+    agent_session.apply_reward(tpc_usage_score)
+    
+    return tpc_usage_score
+```
+
+This method works by training AI agents to recognize that proper documentation behavior leads to higher rewards. Over time, agents fine-tuned with this reward function will naturally incorporate TPC logging into their workflow, seeing it as part of successful task completion rather than an external requirement.
+
+## MCP Interface Usage Examples
+
+Interaction with this server requires an MCP client library compatible with FastMCP. The examples below are conceptual pseudo-code demonstrating how such a client might be used.
+
+### Invoking Tools (Actions)
+
+```python
 # Conceptual Python MCP Client Example
 import asyncio
 # from your_mcp_client_library import MCPClient # Import your actual client
@@ -111,7 +201,7 @@ async def main():
         }
         new_plan = await client.invoke_tool("create_plan", **plan_data)
         print("Created Plan:", new_plan)
-        plan_id = new_plan.get("id") if new_plan else None
+        plan_id = new_plan.id if new_plan else None
 
         # --- Create a Thought related to the Plan ---
         if plan_id:
@@ -122,7 +212,7 @@ async def main():
             }
             new_thought = await client.invoke_tool("create_thought", **thought_data)
             print("Created Thought:", new_thought)
-            thought_id = new_thought.get("id") if new_thought else None
+            thought_id = new_thought.id if new_thought else None
 
         # --- Log a Change related to the Plan ---
         if plan_id and thought_id:
@@ -141,8 +231,11 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
 
-Accessing Resources (Data Retrieval)
+### Accessing Resources (Data Retrieval)
+
+```python
 # Conceptual Python MCP Client Example (continued)
 import asyncio
 # from your_mcp_client_library import MCPClient
@@ -155,10 +248,9 @@ async def retrieve_data():
         # --- Get all plans ---
         all_plans = await client.get_resource("tpc://plans")
         print("\nAll Plans:")
-        # Assuming the result is a list of dicts
+        # Plans are now returned as PlanModel objects
         for plan in all_plans or []:
-             print(f"- ID: {plan.get('id')}, Desc: {plan.get('description')}, Status: {plan.get('status')}, Deps: {plan.get('dependencies')}")
-
+             print(f"- ID: {plan.id}, Desc: {plan.description}, Status: {plan.status}, Deps: {plan.dependencies}")
 
         # --- Get a specific thought ---
         # Replace 'th_some_uuid' with an actual ID from your DB
@@ -179,46 +271,63 @@ if __name__ == "__main__":
     # asyncio.run(retrieve_data())
     pass
 ```
-MCP Interface Summary
-Tools (Actions)
- * create_thought: Logs a new thought.
-   * content (str, required)
-   * plan_id (str, optional): Link to an existing plan ID.
-   * uncertainty_flag (bool, optional, default: False)
- * create_plan: Defines a new plan/task.
-   * description (str, required)
-   * status (str, optional, default: "todo"): Must be one of PlanStatus enum values (todo, in-progress, blocked, done).
-   * dependencies (List[str], optional): List of existing plan IDs this plan depends on.
- * log_change: Records a changelog entry linked to a plan.
-   * plan_id (str, required): ID of the plan this change relates to.
-   * description (str, required): Description of the change made.
-   * thought_ids (List[str], optional): List of existing thought IDs relevant to this change.
-Resources (Data URIs)
- * tpc://thoughts: Retrieves all logged thoughts.
- * tpc://thoughts/{thought_id}: Retrieves a specific thought by its ID.
- * tpc://plans: Retrieves all defined plans, including their dependencies.
- * tpc://plans/{plan_id}: Retrieves a specific plan by its ID, including dependencies.
- * tpc://changelog: Retrieves all changelog entries, including linked thought IDs.
- * tpc://changelog/{change_id}: Retrieves a specific changelog entry by its ID, including linked thought IDs.
-Storage Mechanism
- * Data is persisted in a single SQLite database file (tpc_data.db) located in the project's root directory.
- * SQLAlchemy Core Expression Language is used to define the database schema (thoughts, plans, changelog tables) and construct queries.
- * Relationships (plan dependencies, changelog-thought links) are managed via dedicated join tables (plan_dependencies, changelog_thoughts) using foreign keys, ensuring relational integrity.
- * Asynchronous database access is handled by SQLAlchemy's native asyncio extension (sqlalchemy.ext.asyncio) using the aiosqlite driver.
- * Database sessions (AsyncSession) are managed per-request/per-tool-invocation using an async_session_factory.
-Concurrency Handling
- * The application leverages Python's asyncio for non-blocking I/O operations.
- * Database interactions are asynchronous using sqlalchemy.ext.asyncio, preventing the database from blocking the server's event loop.
- * SQLite handles concurrency at the database file level. While generally robust for single-process async applications or moderate loads, high write concurrency can still lead to database is locked errors, especially if using multiple worker processes (uvicorn --workers N > 1). The session-per-request model helps manage transactional integrity. Running with a single worker (--workers 1) is often recommended for SQLite backends under potential write contention.
-Future Work / Next Steps
- * Update/Delete Operations: Add MCP tools to modify or delete existing thoughts, plans (e.g., update status), or changelog entries.
- * Resource Filtering/Pagination: Enhance resource endpoints (tpc://*) to support query parameters for filtering (e.g., tpc://plans?status=in-progress), sorting, and pagination.
- * Error Handling: Improve granularity of error reporting back through MCP.
- * Testing: Implement comprehensive unit and integration tests for MCP tools and resource logic.
- * Security: If needed, investigate adding authentication/authorization layers suitable for MCP.
- * Documentation: Generate more formal documentation for the MCP interface (perhaps from Pydantic models or tool docstrings).
-Contributing
-(Optional: Add contribution guidelines here if you plan to accept contributions).
-License
-(Optional: Specify your license, e.g., MIT License, Apache 2.0, or state if it's proprietary).
 
+## MCP Interface Summary
+
+### Tools (Actions)
+
+* **create_thought**: Logs a new thought.
+   * `content` (str, required)
+   * `plan_id` (str, optional): Link to an existing plan ID.
+   * `uncertainty_flag` (bool, optional, default: False)
+* **create_plan**: Defines a new plan/task.
+   * `description` (str, required)
+   * `status` (str, optional, default: "todo"): Must be one of PlanStatus enum values (todo, in-progress, blocked, done).
+   * `dependencies` (List[str], optional): List of existing plan IDs this plan depends on.
+* **log_change**: Records a changelog entry linked to a plan.
+   * `plan_id` (str, required): ID of the plan this change relates to.
+   * `description` (str, required): Description of the change made.
+   * `thought_ids` (List[str], optional): List of existing thought IDs relevant to this change.
+
+### Resources (Data URIs)
+
+* **tpc://thoughts**: Retrieves all logged thoughts.
+* **tpc://thoughts/{thought_id}**: Retrieves a specific thought by its ID.
+* **tpc://plans**: Retrieves all defined plans, including their dependencies.
+* **tpc://plans/{plan_id}**: Retrieves a specific plan by its ID, including dependencies.
+* **tpc://changelog**: Retrieves all changelog entries, including linked thought IDs.
+* **tpc://changelog/{change_id}**: Retrieves a specific changelog entry by its ID, including linked thought IDs.
+
+## Storage Mechanism
+
+* Data is persisted in a single SQLite database file (tpc_data.db) located in the project's root directory, configurable via environment variables.
+* SQLAlchemy Core Expression Language is used to define the database schema with appropriate indexes for performance.
+* Relationships (plan dependencies, changelog-thought links) are managed via dedicated join tables with proper foreign keys.
+* Asynchronous database access is optimized with batch operations and efficient JOIN queries.
+* Proper connection pooling is configured for production-level usage.
+
+## Concurrency Handling
+
+* The application leverages Python's asyncio with optimized transaction management.
+* Database connections are managed through an efficient connection pool configured for production loads.
+* Batch operations reduce the number of database round-trips for improved performance under concurrency.
+* Time-ordered UUIDs (UUID7) help maintain chronological order without timestamp column queries.
+
+## Future Work / Next Steps
+
+* **Update/Delete Operations**: Add MCP tools to modify or delete existing thoughts, plans, or changelog entries.
+* **Resource Filtering/Pagination**: Enhance resource endpoints to support query parameters for filtering and sorting.
+* **Full-Text Search**: Add search capabilities for thought and plan content.
+* **Metrics Collection**: Add performance monitoring for database operations.
+* **Schema Migration Support**: Implement Alembic for database schema versioning.
+* **Testing**: Implement comprehensive unit and integration tests for MCP tools and resource logic.
+* **Security**: If needed, investigate adding authentication/authorization layers suitable for MCP.
+* **Documentation**: Generate more formal documentation for the MCP interface.
+
+## Contributing
+
+(Optional: Add contribution guidelines here if you plan to accept contributions).
+
+## License
+
+(Optional: Specify your license, e.g., MIT License, Apache 2.0, or state if it's proprietary).
