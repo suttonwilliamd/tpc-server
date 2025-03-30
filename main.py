@@ -1,22 +1,26 @@
 import json
 import os
-import uuid
+import logging
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union, TypeVar, Generic, Type
 from contextlib import asynccontextmanager
 import asyncio
-import logging
+
+# For time-ordered UUIDs
+import uuid6  # Note: Would need to be installed with pip
 
 # --- SQLAlchemy Core and Asyncio ---
 import sqlalchemy
-from sqlalchemy import Column, DateTime, ForeignKey, String, Table, MetaData, Boolean, select, insert, exists
+from sqlalchemy import Column, DateTime, ForeignKey, String, Table, MetaData, Boolean, Index
+from sqlalchemy import select, insert, exists, and_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.engine import Row, Result # For type hinting mapped rows
+from sqlalchemy.engine import Row, Result
+from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 # --- Pydantic & MCP ---
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from mcp.server.fastmcp import Context, FastMCP
 
 # --- Logging Configuration ---
@@ -24,24 +28,24 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s',
     filename='mcp_server_errors.log',
-    filemode='w' # Overwrite log file each run
+    filemode='w'
 )
 logger = logging.getLogger(__name__)
 logger.info("Script loaded, logging configured.")
 
-
 # --- Configuration & Database Setup ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(BASE_DIR, 'tpc_data.db')}?foreign_keys=on"
+DATABASE_URL = os.getenv('DATABASE_URL', 
+    f"sqlite+aiosqlite:///{os.path.join(BASE_DIR, 'tpc_data.db')}?foreign_keys=on")
 
-# Create SQLAlchemy Async Engine with connection pooling
+# Create SQLAlchemy Async Engine with optimized connection pooling
 engine = create_async_engine(
-    DATABASE_URL, 
-    pool_size=5,               # Default number of connections to maintain
-    max_overflow=10,           # Allow up to 10 connections beyond pool_size when needed
-    pool_timeout=30,           # Wait up to 30 seconds for a connection
-    pool_recycle=3600,         # Recycle connections after 1 hour
-    echo=False                 # Set to True for SQL logging in development
+    DATABASE_URL,
+    pool_size=10,           # Increased for production use
+    max_overflow=20,        # Allow more overflow connections
+    pool_timeout=30,        # Wait up to 30 seconds for a connection
+    pool_recycle=1800,      # Recycle connections after 30 minutes
+    echo=False              # Set to True for SQL logging in development
 )
 async_session_factory = async_sessionmaker(
     engine, 
@@ -51,35 +55,54 @@ async_session_factory = async_sessionmaker(
 
 metadata = sqlalchemy.MetaData()
 
-# --- Database Table Definitions (Unchanged) ---
+# --- Database Table Definitions with Added Indexes ---
 thoughts_table = Table(
     "thoughts", metadata,
-    Column("id", String, primary_key=True), Column("timestamp", DateTime, nullable=False),
-    Column("content", String, nullable=False), Column("plan_id", String, ForeignKey("plans.id"), nullable=True),
+    Column("id", String, primary_key=True),
+    Column("timestamp", DateTime, nullable=False),
+    Column("content", String, nullable=False),
+    Column("plan_id", String, ForeignKey("plans.id"), nullable=True),
     Column("uncertainty_flag", Boolean, default=False),
 )
+# Add indexes
+Index("ix_thoughts_timestamp", thoughts_table.c.timestamp)
+Index("ix_thoughts_plan_id", thoughts_table.c.plan_id)
+
 plans_table = Table(
     "plans", metadata,
-    Column("id", String, primary_key=True), Column("timestamp", DateTime, nullable=False),
-    Column("description", String, nullable=False), Column("status", String, default="todo"),
+    Column("id", String, primary_key=True),
+    Column("timestamp", DateTime, nullable=False),
+    Column("description", String, nullable=False),
+    Column("status", String, default="todo"),
 )
+# Add indexes
+Index("ix_plans_timestamp", plans_table.c.timestamp)
+Index("ix_plans_status", plans_table.c.status)
+
 changelog_table = Table(
     "changelog", metadata,
-    Column("id", String, primary_key=True), Column("timestamp", DateTime, nullable=False),
-    Column("plan_id", String, ForeignKey("plans.id"), nullable=False), Column("description", String, nullable=False),
+    Column("id", String, primary_key=True),
+    Column("timestamp", DateTime, nullable=False),
+    Column("plan_id", String, ForeignKey("plans.id"), nullable=False),
+    Column("description", String, nullable=False),
 )
+# Add indexes
+Index("ix_changelog_timestamp", changelog_table.c.timestamp)
+Index("ix_changelog_plan_id", changelog_table.c.plan_id)
+
 plan_dependencies_table = Table(
     "plan_dependencies", metadata,
     Column("plan_id", String, ForeignKey("plans.id"), primary_key=True),
     Column("depends_on_plan_id", String, ForeignKey("plans.id"), primary_key=True),
 )
+
 changelog_thoughts_table = Table(
     "changelog_thoughts", metadata,
     Column("changelog_id", String, ForeignKey("changelog.id"), primary_key=True),
     Column("thought_id", String, ForeignKey("thoughts.id"), primary_key=True),
 )
 
-# --- Enums and Pydantic Models (Unchanged) ---
+# --- Enums and Pydantic Models ---
 class PlanStatus(str, Enum):
     TODO = "todo"
     IN_PROGRESS = "in-progress"
@@ -99,6 +122,12 @@ class PlanModel(BaseModel):
     description: str
     status: PlanStatus
     dependencies: List[str] = Field(default_factory=list)
+    
+    @validator('status', pre=True)
+    def validate_status(cls, v):
+        if isinstance(v, str):
+            return PlanStatus(v)
+        return v
 
 class ChangeLogModel(BaseModel):
     id: str
@@ -107,41 +136,88 @@ class ChangeLogModel(BaseModel):
     description: str
     thought_ids: List[str] = Field(default_factory=list)
 
-# --- Repository Pattern Implementation ---
-class BaseRepository:
-    """Base repository with common utility methods"""
+# Type variables for generic repository
+T = TypeVar('T', bound=BaseModel)
+IdType = str
+
+# --- Generic Repository Implementation ---
+class GenericRepository(Generic[T]):
+    """Generic repository with common CRUD operations"""
+    
+    def __init__(self, model_cls: Type[T], table: Table):
+        self.model_cls = model_cls
+        self.table = table
     
     @staticmethod
     def _map_row_to_dict(row_mapping: Optional[Dict]) -> Optional[Dict[str, Any]]:
         """Maps a SQLAlchemy Row mapping (dict-like) to a standard mutable dictionary."""
         if row_mapping is None:
             return None
-        # Explicitly convert the immutable RowMapping to a mutable dict
         return dict(row_mapping)
     
-    @staticmethod
-    async def _check_exists(session: AsyncSession, table: Table, column: Column, value: str) -> bool:
+    def _dict_to_model(self, data: Dict[str, Any]) -> Optional[T]:
+        """Convert dictionary to Pydantic model"""
+        if data is None:
+            return None
+        return self.model_cls(**data)
+    
+    async def _check_exists(self, session: AsyncSession, column: Column, value: str) -> bool:
         """Check if a record exists by column value using EXISTS."""
         stmt = select(exists().where(column == value))
         result = await session.scalar(stmt)
         return bool(result)
+    
+    async def _check_multiple_exist(self, session: AsyncSession, column: Column, values: List[str]) -> List[str]:
+        """Check if multiple records exist, return list of missing values."""
+        if not values:
+            return []
+            
+        stmt = select(column).where(column.in_(values))
+        result = await session.execute(stmt)
+        existing_values = result.scalars().all()
+        return [v for v in values if v not in existing_values]
+    
+    async def get_by_id(self, session: AsyncSession, record_id: str) -> Optional[T]:
+        """Get a record by ID."""
+        stmt = select(self.table).where(self.table.c.id == record_id)
+        result = await session.execute(stmt)
+        row_map = result.mappings().first()
+        data = self._map_row_to_dict(row_map)
+        return self._dict_to_model(data)
+    
+    async def get_all(self, session: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = None) -> List[T]:
+        """Get all records with optional pagination."""
+        stmt = select(self.table).order_by(self.table.c.timestamp)
+        
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        if offset is not None:
+            stmt = stmt.offset(offset)
+            
+        result = await session.execute(stmt)
+        return [self._dict_to_model(self._map_row_to_dict(row_map)) for row_map in result.mappings().all()]
 
-class ThoughtRepository(BaseRepository):
+# --- Specialized Repositories ---
+class ThoughtRepository(GenericRepository[ThoughtModel]):
     """Repository for Thought-related database operations"""
     
-    @staticmethod
+    def __init__(self):
+        super().__init__(ThoughtModel, thoughts_table)
+    
     async def create(
+        self,
         session: AsyncSession, 
         content: str, 
         plan_id: Optional[str] = None, 
         uncertainty_flag: bool = False
-    ) -> Dict[str, Any]:
+    ) -> ThoughtModel:
         """Create a new thought record."""
-        thought_id = f"th_{uuid.uuid4()}"
+        logger.debug(f"Creating thought: content={content}, plan_id={plan_id}, uncertainty_flag={uncertainty_flag}")
+        thought_id = f"th_{uuid6.uuid7()}"
         timestamp = datetime.now(timezone.utc)
         
         # Check plan exists if provided
-        if plan_id and not await BaseRepository._check_exists(session, plans_table, plans_table.c.id, plan_id):
+        if plan_id and not await self._check_exists(session, plans_table.c.id, plan_id):
             raise ValueError(f"Plan with id {plan_id} does not exist.")
             
         # Insert thought
@@ -162,51 +238,30 @@ class ThoughtRepository(BaseRepository):
         if new_thought_row is None:
             raise Exception(f"Failed to retrieve newly created thought {thought_id}")
         
-        return BaseRepository._map_row_to_dict(new_thought_row)
-    
-    @staticmethod
-    async def get_by_id(session: AsyncSession, thought_id: str) -> Optional[Dict[str, Any]]:
-        """Get a thought by ID."""
-        stmt = select(thoughts_table).where(thoughts_table.c.id == thought_id)
-        result = await session.execute(stmt)
-        row_map = result.mappings().first()
-        return BaseRepository._map_row_to_dict(row_map)
-    
-    @staticmethod
-    async def get_all(
-        session: AsyncSession, 
-        limit: Optional[int] = None, 
-        offset: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Get all thoughts with optional pagination."""
-        stmt = select(thoughts_table).order_by(thoughts_table.c.timestamp)
-        
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        if offset is not None:
-            stmt = stmt.offset(offset)
-            
-        result = await session.execute(stmt)
-        return [BaseRepository._map_row_to_dict(row_map) for row_map in result.mappings().all()]
+        return self._dict_to_model(self._map_row_to_dict(new_thought_row))
 
-class PlanRepository(BaseRepository):
+class PlanRepository(GenericRepository[PlanModel]):
     """Repository for Plan-related database operations"""
     
-    @staticmethod
+    def __init__(self):
+        super().__init__(PlanModel, plans_table)
+    
     async def create(
+        self,
         session: AsyncSession,
         description: str, 
         status: str = PlanStatus.TODO.value, 
         dependencies: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+    ) -> PlanModel:
         """Create a new plan record with optional dependencies."""
+        logger.debug(f"Creating plan: description={description}, status={status}, dependencies={dependencies}")
         # Validate status
         try:
             status_enum = PlanStatus(status)
         except ValueError:
             raise ValueError(f"Invalid status '{status}'. Must be one of {[item.value for item in PlanStatus]}")
             
-        plan_id = f"pl_{uuid.uuid4()}"
+        plan_id = f"pl_{uuid6.uuid7()}"
         timestamp = datetime.now(timezone.utc)
         dependencies = dependencies or []
         
@@ -220,11 +275,8 @@ class PlanRepository(BaseRepository):
         await session.execute(stmt_plan)
         
         if dependencies:
-            # Check dependencies exist
-            missing_deps = []
-            for dep_id in dependencies:
-                if not await BaseRepository._check_exists(session, plans_table, plans_table.c.id, dep_id):
-                    missing_deps.append(dep_id)
+            # Check dependencies exist in batch
+            missing_deps = await self._check_multiple_exist(session, plans_table.c.id, dependencies)
                     
             if missing_deps:
                 raise ValueError(f"Dependency plan IDs do not exist: {', '.join(sorted(missing_deps))}")
@@ -235,16 +287,10 @@ class PlanRepository(BaseRepository):
                 stmt_deps = insert(plan_dependencies_table)
                 await session.execute(stmt_deps, dep_values)
         
-        # Fetch created plan with dependencies
-        plan_dict = await PlanRepository.get_by_id(session, plan_id)
-        
-        if not plan_dict:
-            raise Exception(f"Failed to retrieve newly created plan {plan_id}")
-            
-        return plan_dict
+        # Get plan with dependencies
+        return await self.get_by_id(session, plan_id)
     
-    @staticmethod
-    async def get_dependencies(session: AsyncSession, plan_id: str) -> List[str]:
+    async def get_dependencies(self, session: AsyncSession, plan_id: str) -> List[str]:
         """Get dependencies for a plan."""
         stmt = select(plan_dependencies_table.c.depends_on_plan_id).where(
             plan_dependencies_table.c.plan_id == plan_id
@@ -252,30 +298,24 @@ class PlanRepository(BaseRepository):
         result = await session.execute(stmt)
         return result.scalars().all()
     
-    @staticmethod
-    async def get_by_id(session: AsyncSession, plan_id: str) -> Optional[Dict[str, Any]]:
+    async def get_by_id(self, session: AsyncSession, plan_id: str) -> Optional[PlanModel]:
         """Get a plan by ID with its dependencies."""
         # Get plan
         stmt = select(plans_table).where(plans_table.c.id == plan_id)
         result = await session.execute(stmt)
         plan_map = result.mappings().first()
-        plan_dict = BaseRepository._map_row_to_dict(plan_map)
+        plan_dict = self._map_row_to_dict(plan_map)
         
         if not plan_dict:
             return None
         
         # Get dependencies
-        plan_dict["dependencies"] = await PlanRepository.get_dependencies(session, plan_id)
-        return plan_dict
+        plan_dict["dependencies"] = await self.get_dependencies(session, plan_id)
+        return self._dict_to_model(plan_dict)
     
-    @staticmethod
-    async def get_all(
-        session: AsyncSession,
-        limit: Optional[int] = None, 
-        offset: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Get all plans with their dependencies."""
-        # Fetch all plans with pagination
+    async def get_all(self, session: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PlanModel]:
+        """Get all plans with their dependencies using efficient JOIN queries."""
+        # Base query for plans
         stmt_plans = select(plans_table).order_by(plans_table.c.timestamp)
         
         if limit is not None:
@@ -303,33 +343,37 @@ class PlanRepository(BaseRepository):
         for dep_map in dep_rows_map:
             deps_map[dep_map["plan_id"]].append(dep_map["depends_on_plan_id"])
         
-        # Combine results
+        # Combine results and convert to models
         results = []
         for plan_map in plan_rows_map:
-            plan_dict = BaseRepository._map_row_to_dict(plan_map)
+            plan_dict = self._map_row_to_dict(plan_map)
             if plan_dict:
                 plan_dict["dependencies"] = deps_map.get(plan_dict["id"], [])
-                results.append(plan_dict)
+                results.append(self._dict_to_model(plan_dict))
                 
         return results
 
-class ChangelogRepository(BaseRepository):
+class ChangelogRepository(GenericRepository[ChangeLogModel]):
     """Repository for Changelog-related database operations"""
     
-    @staticmethod
+    def __init__(self):
+        super().__init__(ChangeLogModel, changelog_table)
+    
     async def create(
+        self,
         session: AsyncSession,
         plan_id: str, 
         description: str, 
         thought_ids: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+    ) -> ChangeLogModel:
         """Create a new changelog entry."""
-        change_id = f"cl_{uuid.uuid4()}"
+        logger.debug(f"Creating changelog: plan_id={plan_id}, description={description}, thought_ids={thought_ids}")
+        change_id = f"cl_{uuid6.uuid7()}"
         timestamp = datetime.now(timezone.utc)
         thought_ids = thought_ids or []
         
         # Check plan exists
-        if not await BaseRepository._check_exists(session, plans_table, plans_table.c.id, plan_id):
+        if not await self._check_exists(session, plans_table.c.id, plan_id):
             raise ValueError(f"Plan with id {plan_id} does not exist.")
         
         # Insert Changelog
@@ -342,11 +386,8 @@ class ChangelogRepository(BaseRepository):
         await session.execute(stmt_change)
         
         if thought_ids:
-            # Check thoughts exist
-            missing_thoughts = []
-            for thought_id in thought_ids:
-                if not await BaseRepository._check_exists(session, thoughts_table, thoughts_table.c.id, thought_id):
-                    missing_thoughts.append(thought_id)
+            # Check thoughts exist in batch
+            missing_thoughts = await self._check_multiple_exist(session, thoughts_table.c.id, thought_ids)
                     
             if missing_thoughts:
                 raise ValueError(f"Thought IDs do not exist: {', '.join(sorted(missing_thoughts))}")
@@ -357,16 +398,10 @@ class ChangelogRepository(BaseRepository):
                 stmt_links = insert(changelog_thoughts_table)
                 await session.execute(stmt_links, thought_values)
         
-        # Fetch created changelog with thoughts
-        change_dict = await ChangelogRepository.get_by_id(session, change_id)
-        
-        if not change_dict:
-            raise Exception(f"Failed to retrieve newly created changelog entry {change_id}")
-            
-        return change_dict
+        # Get created changelog with thoughts
+        return await self.get_by_id(session, change_id)
     
-    @staticmethod
-    async def get_thought_ids(session: AsyncSession, changelog_id: str) -> List[str]:
+    async def get_thought_ids(self, session: AsyncSession, changelog_id: str) -> List[str]:
         """Get thought IDs linked to a changelog entry."""
         stmt = select(changelog_thoughts_table.c.thought_id).where(
             changelog_thoughts_table.c.changelog_id == changelog_id
@@ -374,27 +409,21 @@ class ChangelogRepository(BaseRepository):
         result = await session.execute(stmt)
         return result.scalars().all()
     
-    @staticmethod
-    async def get_by_id(session: AsyncSession, change_id: str) -> Optional[Dict[str, Any]]:
+    async def get_by_id(self, session: AsyncSession, change_id: str) -> Optional[ChangeLogModel]:
         """Get a changelog entry by ID with linked thought IDs."""
         stmt = select(changelog_table).where(changelog_table.c.id == change_id)
         result = await session.execute(stmt)
         change_map = result.mappings().first()
-        change_dict = BaseRepository._map_row_to_dict(change_map)
+        change_dict = self._map_row_to_dict(change_map)
         
         if not change_dict:
             return None
         
-        change_dict["thought_ids"] = await ChangelogRepository.get_thought_ids(session, change_id)
-        return change_dict
+        change_dict["thought_ids"] = await self.get_thought_ids(session, change_id)
+        return self._dict_to_model(change_dict)
     
-    @staticmethod
-    async def get_all(
-        session: AsyncSession,
-        limit: Optional[int] = None, 
-        offset: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Get all changelog entries with linked thought IDs."""
+    async def get_all(self, session: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = None) -> List[ChangeLogModel]:
+        """Get all changelog entries with linked thought IDs using efficient JOIN queries."""
         # Fetch all changelog entries with pagination
         stmt_cl = select(changelog_table).order_by(changelog_table.c.timestamp)
         
@@ -423,15 +452,20 @@ class ChangelogRepository(BaseRepository):
         for link_map in link_rows_map:
             thoughts_map[link_map["changelog_id"]].append(link_map["thought_id"])
         
-        # Combine results
+        # Combine results and convert to models
         results = []
         for change_map in change_rows_map:
-            change_dict = BaseRepository._map_row_to_dict(change_map)
+            change_dict = self._map_row_to_dict(change_map)
             if change_dict:
                 change_dict["thought_ids"] = thoughts_map.get(change_dict["id"], [])
-                results.append(change_dict)
+                results.append(self._dict_to_model(change_dict))
                 
         return results
+
+# --- Create Repository Instances ---
+thought_repo = ThoughtRepository()
+plan_repo = PlanRepository()
+changelog_repo = ChangelogRepository()
 
 # --- Lifespan (With Proper Engine Disposal) ---
 @asynccontextmanager
@@ -471,92 +505,92 @@ def handle_db_errors(func):
             logger.warning(f"Validation error in {func.__name__}: {ve}")
             raise ve
         except IntegrityError as ie:
-            # Handle constraint violations
+            # Handle constraint violations with specific message
             logger.warning(f"Database constraint error in {func.__name__}: {ie}")
             await session.rollback() if 'session' in locals() else None
-            raise ValueError(f"Database constraint violation: {str(ie)}") from ie
+            raise ValueError(f"Database constraint violation: {str(ie).split(':')[-1].strip()}") from ie
         except SQLAlchemyError as se:
-            # Handle other SQLAlchemy errors
+            # Handle other SQLAlchemy errors with operation context
             logger.error(f"SQLAlchemy error in {func.__name__}: {se}", exc_info=True)
             await session.rollback() if 'session' in locals() else None
-            raise Exception(f"Database error in {func.__name__}") from se
+            raise Exception(f"Database error during {func.__name__}: {str(se)}") from se
         except Exception as e:
             # Handle unexpected errors
             logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
             await session.rollback() if 'session' in locals() else None
-            raise Exception(f"Unexpected error in {func.__name__}") from e
+            raise Exception(f"Unexpected error in {func.__name__}: {str(e)}") from e
     return wrapper
 
 # --- MCP Tools (Actions) ---
 @mcp.tool()
 @handle_db_errors
-async def create_thought(content: str, plan_id: Optional[str] = None, uncertainty_flag: bool = False) -> Dict[str, Any]:
+async def create_thought(content: str, plan_id: Optional[str] = None, uncertainty_flag: bool = False) -> ThoughtModel:
     """Log a new thought, rationale, or decision."""
     async with async_session_factory() as session:
         async with session.begin():  # Automatic transaction management
-            return await ThoughtRepository.create(
+            return await thought_repo.create(
                 session, content, plan_id, uncertainty_flag
             )
 
 @mcp.tool()
 @handle_db_errors
-async def create_plan(description: str, status: str = PlanStatus.TODO.value, dependencies: Optional[List[str]] = None) -> Dict[str, Any]:
+async def create_plan(description: str, status: str = PlanStatus.TODO.value, dependencies: Optional[List[str]] = None) -> PlanModel:
     """Define a new plan or task to be executed."""
     async with async_session_factory() as session:
         async with session.begin():
-            return await PlanRepository.create(
+            return await plan_repo.create(
                 session, description, status, dependencies
             )
 
 @mcp.tool()
 @handle_db_errors
-async def log_change(plan_id: str, description: str, thought_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+async def log_change(plan_id: str, description: str, thought_ids: Optional[List[str]] = None) -> ChangeLogModel:
     """Record a change or commit made, linking it to a specific plan and relevant thoughts."""
     async with async_session_factory() as session:
         async with session.begin():
-            return await ChangelogRepository.create(
+            return await changelog_repo.create(
                 session, plan_id, description, thought_ids
             )
 
 # --- MCP Resources (Data Retrieval) ---
 @mcp.resource("tpc://thoughts")
 @handle_db_errors
-async def get_all_thoughts(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+async def get_all_thoughts(limit: int = 100, offset: int = 0) -> List[ThoughtModel]:
     """Retrieve all logged thoughts with pagination."""
     async with async_session_factory() as session:
-        return await ThoughtRepository.get_all(session, limit, offset)
+        return await thought_repo.get_all(session, limit, offset)
 
 @mcp.resource("tpc://thoughts/{thought_id}")
 @handle_db_errors
-async def get_thought_by_id(thought_id: str) -> Optional[Dict[str, Any]]:
+async def get_thought_by_id(thought_id: str) -> Optional[ThoughtModel]:
     """Retrieve a specific thought by its ID."""
     async with async_session_factory() as session:
-        return await ThoughtRepository.get_by_id(session, thought_id)
+        return await thought_repo.get_by_id(session, thought_id)
 
 @mcp.resource("tpc://plans")
 @handle_db_errors
-async def get_all_plans(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+async def get_all_plans(limit: int = 100, offset: int = 0) -> List[PlanModel]:
     """Retrieve all defined plans, including their dependencies, with pagination."""
     async with async_session_factory() as session:
-        return await PlanRepository.get_all(session, limit, offset)
+        return await plan_repo.get_all(session, limit, offset)
 
 @mcp.resource("tpc://plans/{plan_id}")
 @handle_db_errors
-async def get_plan_by_id(plan_id: str) -> Optional[Dict[str, Any]]:
+async def get_plan_by_id(plan_id: str) -> Optional[PlanModel]:
     """Retrieve a specific plan by its ID, including dependencies."""
     async with async_session_factory() as session:
-        return await PlanRepository.get_by_id(session, plan_id)
+        return await plan_repo.get_by_id(session, plan_id)
 
 @mcp.resource("tpc://changelog")
 @handle_db_errors
-async def get_all_changelog(limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+async def get_all_changelog(limit: int = 100, offset: int = 0) -> List[ChangeLogModel]:
     """Retrieve all changelog entries, including linked thought IDs, with pagination."""
     async with async_session_factory() as session:
-        return await ChangelogRepository.get_all(session, limit, offset)
+        return await changelog_repo.get_all(session, limit, offset)
 
 @mcp.resource("tpc://changelog/{change_id}")
 @handle_db_errors
-async def get_change_by_id(change_id: str) -> Optional[Dict[str, Any]]:
+async def get_change_by_id(change_id: str) -> Optional[ChangeLogModel]:
     """Retrieve a specific changelog entry by its ID, including linked thought IDs."""
     async with async_session_factory() as session:
-        return await ChangelogRepository.get_by_id(session, change_id)
+        return await changelog_repo.get_by_id(session, change_id)
