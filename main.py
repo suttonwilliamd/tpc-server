@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union, TypeVar, Generic, Type
 from contextlib import asynccontextmanager
@@ -17,7 +17,7 @@ from sqlalchemy import select, insert, exists, and_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.engine import Row, Result
 from sqlalchemy.orm import joinedload
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError, DBAPIError
 
 # --- Pydantic & MCP ---
 from pydantic import BaseModel, Field, validator
@@ -41,11 +41,12 @@ DATABASE_URL = os.getenv('DATABASE_URL',
 # Create SQLAlchemy Async Engine with optimized connection pooling
 engine = create_async_engine(
     DATABASE_URL,
-    pool_size=10,           # Increased for production use
-    max_overflow=20,        # Allow more overflow connections
-    pool_timeout=30,        # Wait up to 30 seconds for a connection
-    pool_recycle=1800,      # Recycle connections after 30 minutes
-    echo=False              # Set to True for SQL logging in development
+    pool_pre_ping=True,       # Add health check before using connections
+    pool_size=10,             # Increased for production use
+    max_overflow=20,          # Allow more overflow connections
+    pool_timeout=30,          # Wait up to 30 seconds for a connection
+    pool_recycle=1800,        # Recycle connections after 30 minutes
+    echo=False                # Set to True for SQL logging in development
 )
 async_session_factory = async_sessionmaker(
     engine, 
@@ -136,6 +137,45 @@ class ChangeLogModel(BaseModel):
     description: str
     thought_ids: List[str] = Field(default_factory=list)
 
+# --- Caching Mechanism ---
+cache = {}
+CACHE_TTL = timedelta(minutes=5)
+
+def cached_query(key, ttl=CACHE_TTL):
+    """Simple time-based cache decorator for read-only queries."""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            cache_key = f"{key}:{str(kwargs)}"
+            now = datetime.now(timezone.utc)
+            if cache_key in cache and now - cache[cache_key]["timestamp"] < ttl:
+                logger.debug(f"Cache hit for {cache_key}")
+                return cache[cache_key]["data"]
+            
+            result = await func(*args, **kwargs)
+            cache[cache_key] = {"data": result, "timestamp": now}
+            return result
+        return wrapper
+    return decorator
+
+def invalidate_cache(key_prefix=None):
+    """Invalidate cache entries with the given prefix or all if None."""
+    if key_prefix:
+        keys_to_remove = [k for k in cache.keys() if k.startswith(key_prefix)]
+        for k in keys_to_remove:
+            del cache[k]
+    else:
+        cache.clear()
+
+# --- Cursor Pagination Utilities ---
+def encode_cursor(timestamp):
+    """Encode a timestamp into a cursor string."""
+    return str(int(timestamp.timestamp() * 1000))
+
+def decode_cursor(cursor):
+    """Decode a cursor string into a timestamp."""
+    ts = float(cursor) / 1000
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
 # Type variables for generic repository
 T = TypeVar('T', bound=BaseModel)
 IdType = str
@@ -196,6 +236,29 @@ class GenericRepository(Generic[T]):
             
         result = await session.execute(stmt)
         return [self._dict_to_model(self._map_row_to_dict(row_map)) for row_map in result.mappings().all()]
+    
+    async def get_with_cursor(self, session: AsyncSession, limit: int = 100, cursor: Optional[str] = None) -> Dict:
+        """Get records with cursor-based pagination."""
+        query = select(self.table).order_by(self.table.c.timestamp)
+        
+        if cursor:
+            cursor_timestamp = decode_cursor(cursor)
+            query = query.where(self.table.c.timestamp > cursor_timestamp)
+            
+        query = query.limit(limit + 1)  # Get one extra to check if there are more
+        result = await session.execute(query)
+        items = result.mappings().all()
+        
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+            
+        next_cursor = encode_cursor(items[-1]["timestamp"]) if has_more and items else None
+        
+        return {
+            "items": [self._dict_to_model(self._map_row_to_dict(item)) for item in items],
+            "next_cursor": next_cursor
+        }
 
 # --- Specialized Repositories ---
 class ThoughtRepository(GenericRepository[ThoughtModel]):
@@ -230,6 +293,9 @@ class ThoughtRepository(GenericRepository[ThoughtModel]):
         )
         await session.execute(stmt_insert)
         
+        # Invalidate relevant caches
+        invalidate_cache("thoughts")
+        
         # Fetch created thought
         stmt_select = select(thoughts_table).where(thoughts_table.c.id == thought_id)
         result_select = await session.execute(stmt_select)
@@ -239,6 +305,42 @@ class ThoughtRepository(GenericRepository[ThoughtModel]):
             raise Exception(f"Failed to retrieve newly created thought {thought_id}")
         
         return self._dict_to_model(self._map_row_to_dict(new_thought_row))
+    
+    async def bulk_create(
+        self,
+        session: AsyncSession,
+        thoughts_data: List[Dict]
+    ) -> List[ThoughtModel]:
+        """Create multiple thoughts in a single transaction."""
+        values = []
+        for data in thoughts_data:
+            thought_id = f"th_{uuid6.uuid7()}"
+            timestamp = datetime.now(timezone.utc)
+            values.append({
+                "id": thought_id,
+                "timestamp": timestamp,
+                "content": data["content"],
+                "plan_id": data.get("plan_id"),
+                "uncertainty_flag": data.get("uncertainty_flag", False)
+            })
+        
+        if values:
+            await session.execute(
+                insert(thoughts_table),
+                values,
+                execution_options={"synchronize_session": False}
+            )
+            
+        # Invalidate relevant caches
+        invalidate_cache("thoughts")
+        
+        # Return created thoughts
+        thought_ids = [v["id"] for v in values]
+        stmt = select(thoughts_table).where(thoughts_table.c.id.in_(thought_ids))
+        result = await session.execute(stmt)
+        rows = result.mappings().all()
+        
+        return [self._dict_to_model(self._map_row_to_dict(row)) for row in rows]
 
 class PlanRepository(GenericRepository[PlanModel]):
     """Repository for Plan-related database operations"""
@@ -265,27 +367,39 @@ class PlanRepository(GenericRepository[PlanModel]):
         timestamp = datetime.now(timezone.utc)
         dependencies = dependencies or []
         
-        # Insert Plan
-        stmt_plan = insert(plans_table).values(
-            id=plan_id, 
-            timestamp=timestamp, 
-            description=description, 
-            status=status,
-        )
-        await session.execute(stmt_plan)
-        
-        if dependencies:
-            # Check dependencies exist in batch
-            missing_deps = await self._check_multiple_exist(session, plans_table.c.id, dependencies)
+        # Use a savepoint for complex operation
+        async with session.begin_nested() as nested:
+            try:
+                # Insert Plan
+                stmt_plan = insert(plans_table).values(
+                    id=plan_id, 
+                    timestamp=timestamp, 
+                    description=description, 
+                    status=status,
+                )
+                await session.execute(stmt_plan)
+                
+                if dependencies:
+                    # Check dependencies exist in batch
+                    missing_deps = await self._check_multiple_exist(session, plans_table.c.id, dependencies)
+                            
+                    if missing_deps:
+                        raise ValueError(f"Dependency plan IDs do not exist: {', '.join(sorted(missing_deps))}")
                     
-            if missing_deps:
-                raise ValueError(f"Dependency plan IDs do not exist: {', '.join(sorted(missing_deps))}")
-            
-            # Insert Dependencies efficiently with executemany
-            dep_values = [{"plan_id": plan_id, "depends_on_plan_id": dep_id} for dep_id in dependencies]
-            if dep_values:
-                stmt_deps = insert(plan_dependencies_table)
-                await session.execute(stmt_deps, dep_values)
+                    # Insert Dependencies efficiently with executemany
+                    dep_values = [{"plan_id": plan_id, "depends_on_plan_id": dep_id} for dep_id in dependencies]
+                    if dep_values:
+                        await session.execute(
+                            insert(plan_dependencies_table),
+                            dep_values,
+                            execution_options={"synchronize_session": False}
+                        )
+            except Exception as e:
+                logger.error(f"Error creating plan: {e}")
+                raise
+        
+        # Invalidate relevant caches
+        invalidate_cache("plans")
         
         # Get plan with dependencies
         return await self.get_by_id(session, plan_id)
@@ -313,6 +427,7 @@ class PlanRepository(GenericRepository[PlanModel]):
         plan_dict["dependencies"] = await self.get_dependencies(session, plan_id)
         return self._dict_to_model(plan_dict)
     
+    @cached_query("plans:all")
     async def get_all(self, session: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = None) -> List[PlanModel]:
         """Get all plans with their dependencies using efficient JOIN queries."""
         # Base query for plans
@@ -352,6 +467,54 @@ class PlanRepository(GenericRepository[PlanModel]):
                 results.append(self._dict_to_model(plan_dict))
                 
         return results
+    
+    async def get_with_cursor(self, session: AsyncSession, limit: int = 100, cursor: Optional[str] = None) -> Dict:
+        """Get plans with cursor-based pagination."""
+        query = select(plans_table).order_by(plans_table.c.timestamp)
+        
+        if cursor:
+            cursor_timestamp = decode_cursor(cursor)
+            query = query.where(plans_table.c.timestamp > cursor_timestamp)
+            
+        query = query.limit(limit + 1)  # Get one extra to check if there are more
+        result = await session.execute(query)
+        plan_rows = result.mappings().all()
+        
+        has_more = len(plan_rows) > limit
+        if has_more:
+            plan_rows = plan_rows[:limit]
+            
+        if not plan_rows:
+            return {"items": [], "next_cursor": None}
+            
+        plan_ids = [plan["id"] for plan in plan_rows]
+        
+        # Fetch all relevant dependencies in a single query
+        stmt_deps = select(plan_dependencies_table).where(
+            plan_dependencies_table.c.plan_id.in_(plan_ids)
+        )
+        result_deps = await session.execute(stmt_deps)
+        dep_rows_map = result_deps.mappings().all()
+        
+        # Build dependency map
+        deps_map = {plan_id: [] for plan_id in plan_ids}
+        for dep_map in dep_rows_map:
+            deps_map[dep_map["plan_id"]].append(dep_map["depends_on_plan_id"])
+        
+        # Combine results and convert to models
+        items = []
+        for plan_map in plan_rows:
+            plan_dict = self._map_row_to_dict(plan_map)
+            if plan_dict:
+                plan_dict["dependencies"] = deps_map.get(plan_dict["id"], [])
+                items.append(self._dict_to_model(plan_dict))
+        
+        next_cursor = encode_cursor(plan_rows[-1]["timestamp"]) if has_more else None
+        
+        return {
+            "items": items,
+            "next_cursor": next_cursor
+        }
 
 class ChangelogRepository(GenericRepository[ChangeLogModel]):
     """Repository for Changelog-related database operations"""
@@ -372,31 +535,43 @@ class ChangelogRepository(GenericRepository[ChangeLogModel]):
         timestamp = datetime.now(timezone.utc)
         thought_ids = thought_ids or []
         
-        # Check plan exists
-        if not await self._check_exists(session, plans_table.c.id, plan_id):
-            raise ValueError(f"Plan with id {plan_id} does not exist.")
-        
-        # Insert Changelog
-        stmt_change = insert(changelog_table).values(
-            id=change_id, 
-            timestamp=timestamp, 
-            plan_id=plan_id, 
-            description=description,
-        )
-        await session.execute(stmt_change)
-        
-        if thought_ids:
-            # Check thoughts exist in batch
-            missing_thoughts = await self._check_multiple_exist(session, thoughts_table.c.id, thought_ids)
+        # Use a savepoint for complex operation
+        async with session.begin_nested() as nested:
+            try:
+                # Check plan exists
+                if not await self._check_exists(session, plans_table.c.id, plan_id):
+                    raise ValueError(f"Plan with id {plan_id} does not exist.")
+                
+                # Insert Changelog
+                stmt_change = insert(changelog_table).values(
+                    id=change_id, 
+                    timestamp=timestamp, 
+                    plan_id=plan_id, 
+                    description=description,
+                )
+                await session.execute(stmt_change)
+                
+                if thought_ids:
+                    # Check thoughts exist in batch
+                    missing_thoughts = await self._check_multiple_exist(session, thoughts_table.c.id, thought_ids)
+                            
+                    if missing_thoughts:
+                        raise ValueError(f"Thought IDs do not exist: {', '.join(sorted(missing_thoughts))}")
                     
-            if missing_thoughts:
-                raise ValueError(f"Thought IDs do not exist: {', '.join(sorted(missing_thoughts))}")
-            
-            # Insert Thought Links efficiently with executemany
-            thought_values = [{"changelog_id": change_id, "thought_id": th_id} for th_id in thought_ids]
-            if thought_values:
-                stmt_links = insert(changelog_thoughts_table)
-                await session.execute(stmt_links, thought_values)
+                    # Insert Thought Links efficiently with executemany
+                    thought_values = [{"changelog_id": change_id, "thought_id": th_id} for th_id in thought_ids]
+                    if thought_values:
+                        await session.execute(
+                            insert(changelog_thoughts_table),
+                            thought_values,
+                            execution_options={"synchronize_session": False}
+                        )
+            except Exception as e:
+                logger.error(f"Error creating changelog: {e}")
+                raise
+        
+        # Invalidate relevant caches
+        invalidate_cache("changelog")
         
         # Get created changelog with thoughts
         return await self.get_by_id(session, change_id)
@@ -422,6 +597,7 @@ class ChangelogRepository(GenericRepository[ChangeLogModel]):
         change_dict["thought_ids"] = await self.get_thought_ids(session, change_id)
         return self._dict_to_model(change_dict)
     
+    @cached_query("changelog:all")
     async def get_all(self, session: AsyncSession, limit: Optional[int] = None, offset: Optional[int] = None) -> List[ChangeLogModel]:
         """Get all changelog entries with linked thought IDs using efficient JOIN queries."""
         # Fetch all changelog entries with pagination
@@ -461,6 +637,54 @@ class ChangelogRepository(GenericRepository[ChangeLogModel]):
                 results.append(self._dict_to_model(change_dict))
                 
         return results
+    
+    async def get_with_cursor(self, session: AsyncSession, limit: int = 100, cursor: Optional[str] = None) -> Dict:
+        """Get changelog entries with cursor-based pagination."""
+        query = select(changelog_table).order_by(changelog_table.c.timestamp)
+        
+        if cursor:
+            cursor_timestamp = decode_cursor(cursor)
+            query = query.where(changelog_table.c.timestamp > cursor_timestamp)
+            
+        query = query.limit(limit + 1)  # Get one extra to check if there are more
+        result = await session.execute(query)
+        change_rows = result.mappings().all()
+        
+        has_more = len(change_rows) > limit
+        if has_more:
+            change_rows = change_rows[:limit]
+            
+        if not change_rows:
+            return {"items": [], "next_cursor": None}
+            
+        change_ids = [change["id"] for change in change_rows]
+        
+        # Fetch all relevant thought links in a single query
+        stmt_links = select(changelog_thoughts_table).where(
+            changelog_thoughts_table.c.changelog_id.in_(change_ids)
+        )
+        result_links = await session.execute(stmt_links)
+        link_rows_map = result_links.mappings().all()
+        
+        # Build thought map
+        thoughts_map = {change_id: [] for change_id in change_ids}
+        for link_map in link_rows_map:
+            thoughts_map[link_map["changelog_id"]].append(link_map["thought_id"])
+        
+        # Combine results and convert to models
+        items = []
+        for change_map in change_rows:
+            change_dict = self._map_row_to_dict(change_map)
+            if change_dict:
+                change_dict["thought_ids"] = thoughts_map.get(change_dict["id"], [])
+                items.append(self._dict_to_model(change_dict))
+        
+        next_cursor = encode_cursor(change_rows[-1]["timestamp"]) if has_more else None
+        
+        return {
+            "items": items,
+            "next_cursor": next_cursor
+        }
 
 # --- Create Repository Instances ---
 thought_repo = ThoughtRepository()
@@ -507,17 +731,26 @@ def handle_db_errors(func):
         except IntegrityError as ie:
             # Handle constraint violations with specific message
             logger.warning(f"Database constraint error in {func.__name__}: {ie}")
-            await session.rollback() if 'session' in locals() else None
+            if 'session' in locals():
+                await session.rollback()
             raise ValueError(f"Database constraint violation: {str(ie).split(':')[-1].strip()}") from ie
+        except DBAPIError as dbe:
+            # Handle connection errors
+            logger.error(f"Database connection error in {func.__name__}: {dbe}", exc_info=True)
+            if 'session' in locals():
+                await session.rollback()
+            raise Exception(f"Database connection issue: {str(dbe)}") from dbe
         except SQLAlchemyError as se:
             # Handle other SQLAlchemy errors with operation context
             logger.error(f"SQLAlchemy error in {func.__name__}: {se}", exc_info=True)
-            await session.rollback() if 'session' in locals() else None
+            if 'session' in locals():
+                await session.rollback()
             raise Exception(f"Database error during {func.__name__}: {str(se)}") from se
         except Exception as e:
             # Handle unexpected errors
             logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
-            await session.rollback() if 'session' in locals() else None
+            if 'session' in locals():
+                await session.rollback()
             raise Exception(f"Unexpected error in {func.__name__}: {str(e)}") from e
     return wrapper
 
@@ -531,6 +764,14 @@ async def create_thought(content: str, plan_id: Optional[str] = None, uncertaint
             return await thought_repo.create(
                 session, content, plan_id, uncertainty_flag
             )
+
+@mcp.tool()
+@handle_db_errors
+async def bulk_create_thoughts(thoughts_data: List[Dict]) -> List[ThoughtModel]:
+    """Create multiple thoughts in a single transaction."""
+    async with async_session_factory() as session:
+        async with session.begin():
+            return await thought_repo.bulk_create(session, thoughts_data)
 
 @mcp.tool()
 @handle_db_errors
@@ -552,6 +793,13 @@ async def log_change(plan_id: str, description: str, thought_ids: Optional[List[
                 session, plan_id, description, thought_ids
             )
 
+@mcp.tool()
+@handle_db_errors
+async def invalidate_caches(key_prefix: Optional[str] = None) -> Dict[str, str]:
+    """Manually invalidate caches with optional prefix."""
+    invalidate_cache(key_prefix)
+    return {"status": "success", "message": f"Caches {'with prefix ' + key_prefix if key_prefix else 'all'} invalidated"}
+
 # --- MCP Resources (Data Retrieval) ---
 @mcp.resource("tpc://thoughts")
 @handle_db_errors
@@ -559,6 +807,13 @@ async def get_all_thoughts(limit: int = 100, offset: int = 0) -> List[ThoughtMod
     """Retrieve all logged thoughts with pagination."""
     async with async_session_factory() as session:
         return await thought_repo.get_all(session, limit, offset)
+
+@mcp.resource("tpc://thoughts/cursor")
+@handle_db_errors
+async def get_thoughts_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
+    """Retrieve thoughts with cursor-based pagination."""
+    async with async_session_factory() as session:
+        return await thought_repo.get_with_cursor(session, limit, cursor)
 
 @mcp.resource("tpc://thoughts/{thought_id}")
 @handle_db_errors
@@ -568,11 +823,19 @@ async def get_thought_by_id(thought_id: str) -> Optional[ThoughtModel]:
         return await thought_repo.get_by_id(session, thought_id)
 
 @mcp.resource("tpc://plans")
+@cached_query("plans:resource")
 @handle_db_errors
 async def get_all_plans(limit: int = 100, offset: int = 0) -> List[PlanModel]:
     """Retrieve all defined plans, including their dependencies, with pagination."""
     async with async_session_factory() as session:
         return await plan_repo.get_all(session, limit, offset)
+
+@mcp.resource("tpc://plans/cursor")
+@handle_db_errors
+async def get_plans_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
+    """Retrieve plans with cursor-based pagination."""
+    async with async_session_factory() as session:
+        return await plan_repo.get_with_cursor(session, limit, cursor)
 
 @mcp.resource("tpc://plans/{plan_id}")
 @handle_db_errors
@@ -582,11 +845,19 @@ async def get_plan_by_id(plan_id: str) -> Optional[PlanModel]:
         return await plan_repo.get_by_id(session, plan_id)
 
 @mcp.resource("tpc://changelog")
+@cached_query("changelog:resource")
 @handle_db_errors
 async def get_all_changelog(limit: int = 100, offset: int = 0) -> List[ChangeLogModel]:
     """Retrieve all changelog entries, including linked thought IDs, with pagination."""
     async with async_session_factory() as session:
         return await changelog_repo.get_all(session, limit, offset)
+
+@mcp.resource("tpc://changelog/cursor")
+@handle_db_errors
+async def get_changelog_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
+    """Retrieve changelog entries with cursor-based pagination."""
+    async with async_session_factory() as session:
+        return await changelog_repo.get_with_cursor(session, limit, cursor)
 
 @mcp.resource("tpc://changelog/{change_id}")
 @handle_db_errors
