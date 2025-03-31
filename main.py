@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union, TypeVar, Generic, Type
 from contextlib import asynccontextmanager
 import asyncio
+from functools import wraps
 
 # For time-ordered UUIDs
 import uuid6  # Note: Would need to be installed with pip
@@ -718,9 +719,12 @@ mcp = FastMCP(
     lifespan=app_lifespan,
 )
 
+
+
 # --- Error handling decorator ---
 def handle_db_errors(func):
     """Decorator to handle database errors consistently."""
+    @wraps(func)  # Add this line to preserve the function signature
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
@@ -747,12 +751,13 @@ def handle_db_errors(func):
                 await session.rollback()
             raise Exception(f"Database error during {func.__name__}: {str(se)}") from se
         except Exception as e:
-            # Handle unexpected errors
+            # Unexpected errors
             logger.error(f"Unexpected error in {func.__name__}: {e}", exc_info=True)
             if 'session' in locals():
                 await session.rollback()
             raise Exception(f"Unexpected error in {func.__name__}: {str(e)}") from e
     return wrapper
+
 
 # --- MCP Tools (Actions) ---
 @mcp.tool()
@@ -801,66 +806,66 @@ async def invalidate_caches(key_prefix: Optional[str] = None) -> Dict[str, str]:
     return {"status": "success", "message": f"Caches {'with prefix ' + key_prefix if key_prefix else 'all'} invalidated"}
 
 # --- MCP Resources (Data Retrieval) ---
-@mcp.resource("tpc://thoughts")
 @handle_db_errors
+@mcp.resource("tpc://thoughts?limit={limit}&offset={offset}")
 async def get_all_thoughts(limit: int = 100, offset: int = 0) -> List[ThoughtModel]:
     """Retrieve all logged thoughts with pagination."""
     async with async_session_factory() as session:
         return await thought_repo.get_all(session, limit, offset)
 
-@mcp.resource("tpc://thoughts/cursor")
 @handle_db_errors
+@mcp.resource("tpc://thoughts/cursor?limit={limit}&cursor={cursor}")
 async def get_thoughts_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
     """Retrieve thoughts with cursor-based pagination."""
     async with async_session_factory() as session:
         return await thought_repo.get_with_cursor(session, limit, cursor)
 
-@mcp.resource("tpc://thoughts/{thought_id}")
 @handle_db_errors
+@mcp.resource("tpc://thoughts/{thought_id}")
 async def get_thought_by_id(thought_id: str) -> Optional[ThoughtModel]:
     """Retrieve a specific thought by its ID."""
     async with async_session_factory() as session:
         return await thought_repo.get_by_id(session, thought_id)
 
-@mcp.resource("tpc://plans")
 @cached_query("plans:resource")
 @handle_db_errors
+@mcp.resource("tpc://plans?limit={limit}&offset={offset}")
 async def get_all_plans(limit: int = 100, offset: int = 0) -> List[PlanModel]:
     """Retrieve all defined plans, including their dependencies, with pagination."""
     async with async_session_factory() as session:
         return await plan_repo.get_all(session, limit, offset)
 
-@mcp.resource("tpc://plans/cursor")
 @handle_db_errors
+@mcp.resource("tpc://plans/cursor?limit={limit}&cursor={cursor}")
 async def get_plans_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
     """Retrieve plans with cursor-based pagination."""
     async with async_session_factory() as session:
         return await plan_repo.get_with_cursor(session, limit, cursor)
 
-@mcp.resource("tpc://plans/{plan_id}")
 @handle_db_errors
+@mcp.resource("tpc://plans/{plan_id}")
 async def get_plan_by_id(plan_id: str) -> Optional[PlanModel]:
     """Retrieve a specific plan by its ID, including dependencies."""
     async with async_session_factory() as session:
         return await plan_repo.get_by_id(session, plan_id)
 
-@mcp.resource("tpc://changelog")
 @cached_query("changelog:resource")
 @handle_db_errors
+@mcp.resource("tpc://changelog?limit={limit}&offset={offset}")
 async def get_all_changelog(limit: int = 100, offset: int = 0) -> List[ChangeLogModel]:
     """Retrieve all changelog entries, including linked thought IDs, with pagination."""
     async with async_session_factory() as session:
         return await changelog_repo.get_all(session, limit, offset)
 
-@mcp.resource("tpc://changelog/cursor")
 @handle_db_errors
+@mcp.resource("tpc://changelog/cursor?limit={limit}&cursor={cursor}")
 async def get_changelog_with_cursor(limit: int = 100, cursor: Optional[str] = None) -> Dict:
     """Retrieve changelog entries with cursor-based pagination."""
     async with async_session_factory() as session:
         return await changelog_repo.get_with_cursor(session, limit, cursor)
 
-@mcp.resource("tpc://changelog/{change_id}")
 @handle_db_errors
+@mcp.resource("tpc://changelog/{change_id}")
 async def get_change_by_id(change_id: str) -> Optional[ChangeLogModel]:
     """Retrieve a specific changelog entry by its ID, including linked thought IDs."""
     async with async_session_factory() as session:
