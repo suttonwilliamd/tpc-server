@@ -30,7 +30,7 @@ A production-ready MCP server for tracking AI team coordination through **Though
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-repo/tpc-server.git
+git clone https://github.com/suttonwilliamd/tpc-server.git
 cd tpc-server
 
 # 2. Install dependencies
