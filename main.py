@@ -669,7 +669,7 @@ plan_repo = PlanRepository()
 changelog_repo = ChangelogRepository()
 
 # --- Server ---
-tpc_server = FastMCP(
+mcp = FastMCP(
     "TPC Server",
     version="1.0.0",
     description="Server for logging Thoughts, Plans, and Changelog entries with optimized operations",
@@ -688,10 +688,10 @@ async def app_lifespan():
         await engine.dispose()
         logger.info("Shutdown complete.")
 
-tpc_server.lifespan = app_lifespan
+mcp.lifespan = app_lifespan
 
 # --- Tools ---
-@tpc_server.tool()
+@mcp.tool()
 async def create_thought(
     content: str, 
     plan_id: Optional[str] = None, 
@@ -711,7 +711,7 @@ async def create_thought(
         logger.error(f"Unexpected error in create_thought: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.tool()
+@mcp.tool()
 async def bulk_create_thoughts(
     thoughts_data: List[Dict[str, Any]],
 ) -> List[ThoughtModel]:
@@ -729,7 +729,7 @@ async def bulk_create_thoughts(
         logger.error(f"Unexpected error in bulk_create_thoughts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.tool()
+@mcp.tool()
 async def create_plan(
     description: str,
     status: str = PlanStatus.TODO.value,
@@ -749,7 +749,7 @@ async def create_plan(
         logger.error(f"Unexpected error in create_plan: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.tool()
+@mcp.tool()
 async def log_change(
     plan_id: str, 
     description: str, 
@@ -770,7 +770,7 @@ async def log_change(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # --- Resources ---
-@tpc_server.resource("thoughts://?limit={limit}&offset={offset}")
+@mcp.resource("thoughts://?limit={limit}&offset={offset}")
 async def get_all_thoughts_paginated(
     limit: int = 100, offset: int = 0
 ) -> List[ThoughtModel]:
@@ -781,7 +781,7 @@ async def get_all_thoughts_paginated(
         logger.error(f"Error retrieving thoughts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("thoughts://cursor?limit={limit}&cursor={cursor}")
+@mcp.resource("thoughts://cursor?limit={limit}&cursor={cursor}")
 async def get_thoughts_with_cursor(
     limit: int = 100, cursor: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -794,7 +794,7 @@ async def get_thoughts_with_cursor(
         logger.error(f"Error retrieving thoughts with cursor: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("thoughts://{thought_id}")
+@mcp.resource("thoughts://{thought_id}")
 async def get_thought_by_id(thought_id: str) -> Optional[ThoughtModel]:
     try:
         async with async_session_factory() as session:
@@ -803,7 +803,7 @@ async def get_thought_by_id(thought_id: str) -> Optional[ThoughtModel]:
         logger.error(f"Error retrieving thought by ID: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("plans://?limit={limit}&offset={offset}")
+@mcp.resource("plans://?limit={limit}&offset={offset}")
 async def get_all_plans_paginated(
     limit: int = 100, offset: int = 0
 ) -> List[PlanModel]:
@@ -814,7 +814,7 @@ async def get_all_plans_paginated(
         logger.error(f"Error retrieving plans: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("plans://cursor?limit={limit}&cursor={cursor}")
+@mcp.resource("plans://cursor?limit={limit}&cursor={cursor}")
 async def get_plans_with_cursor(
     limit: int = 100, cursor: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -827,7 +827,7 @@ async def get_plans_with_cursor(
         logger.error(f"Error retrieving plans with cursor: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("plans://{plan_id}")
+@mcp.resource("plans://{plan_id}")
 async def get_plan_by_id(plan_id: str) -> Optional[PlanModel]:
     try:
         async with async_session_factory() as session:
@@ -836,7 +836,7 @@ async def get_plan_by_id(plan_id: str) -> Optional[PlanModel]:
         logger.error(f"Error retrieving plan by ID: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("changelog://?limit={limit}&offset={offset}")
+@mcp.resource("changelog://?limit={limit}&offset={offset}")
 async def get_all_changelog_paginated(
     limit: int = 100, offset: int = 0
 ) -> List[ChangeLogModel]:
@@ -847,7 +847,7 @@ async def get_all_changelog_paginated(
         logger.error(f"Error retrieving changelog: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("changelog://cursor?limit={limit}&cursor={cursor}")
+@mcp.resource("changelog://cursor?limit={limit}&cursor={cursor}")
 async def get_changelog_with_cursor(
     limit: int = 100, cursor: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -860,7 +860,7 @@ async def get_changelog_with_cursor(
         logger.error(f"Error retrieving changelog with cursor: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@tpc_server.resource("changelog://{change_id}")
+@mcp.resource("changelog://{change_id}")
 async def get_change_by_id(change_id: str) -> Optional[ChangeLogModel]:
     try:
         async with async_session_factory() as session:
@@ -871,7 +871,7 @@ async def get_change_by_id(change_id: str) -> Optional[ChangeLogModel]:
 
 if __name__ == "__main__":
     try:
-        tpc_server.run()
+        mcp.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user.")
     except Exception as e:
