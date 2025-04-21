@@ -1,111 +1,154 @@
-# TPC Server
+# ✨ TPC Server ✨
 
-[![GitHub Stars](https://img.shields.io/github/stars/suttonwilliamd/tpc-server)](https://github.com/suttonwilliamd/tpc-server/stargazers)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+**Track your agent's (or project's) Thoughts 🧠, Plans 📝, and Changes ✅!**
 
-**Thoughts – Plans – Changelog** is an MCP‑compliant server for coordinating AI‑driven development workflows. Built with FastAPI, FastMCP, and SQLAlchemy, it tracks agent **Thoughts**, **Plans**, and **Changes** via both a web UI and JSON API.
+TPC Server provides a backend service to log, store, and retrieve the reasoning process, intended actions, and executed steps for AI agents or collaborative projects. Built with FastAPI, MCP-Server, and SQLAlchemy.
 
-## Overview
 
-- **Thoughts**: capture ideas, insights, and design considerations.
-- **Plans**: structure tasks and link to relevant Thoughts.
-- **Changes**: record discrete modifications tied to specific Plans.
-- **MCP Tools**: a suite of FastMCP‑exposed RPCs for autonomous LLM agents.
-- **Web Interface**: view and add entries under `/thoughts`, `/plans`, `/changes`.
-- **JSON API**: endpoints under `/api` for integrations and automation.
+---
 
-Repository: <https://github.com/suttonwilliamd/tpc-server>
+## 🤔 What is TPC?
 
-## Features
+The core idea is to create a structured, interconnected log:
 
-- 📦 **Structured Collaboration**: many‑to‑many Thoughts↔Plans, one‑to‑many Plans→Changes.
-- ⚡️ **Async Performance**: FastAPI + async SQLAlchemy with efficient connection pooling.
-- 🛠️ **Developer‑First**: Pydantic validation, Jinja2 templates, static asset support.
-- 🤖 **Agentic Integration**: FastMCP tools let AI agents record and query project data.
+* **Thoughts (🧠):** Record insights, ideas, observations, considerations, or raw data points *before* action is decided.
+* **Plans (📝):** Define intended courses of action, strategies, goals, or approaches, often derived *from* thoughts.
+* **Changes (✅):** Log concrete actions taken or modifications made, usually linked *to* a specific plan they help execute.
 
-## Prerequisites
+This server facilitates recording these items and their relationships (Thoughts <-> Plans -> Changes).
 
-- Python 3.10+
-- SQLite (default) or any SQLAlchemy‑compatible database (PostgreSQL, MySQL, etc.)
-- `poetry` or `pip` + `virtualenv`
-- A `.env` file with:
-  ```dotenv
-  DATABASE_URL=sqlite:///./tpc_server.db
-  HOST=0.0.0.0
-  PORT=8050
-  ```
+---
 
-## Installation
+##🚀 Features
 
-1. **Clone the repo**
-   ```bash
-git clone https://github.com/suttonwilliamd/tpc-server.git
-cd tpc-server
-   ```
-2. **Set up environment**
-   ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-   ```
-3. **Initialize the database** (tables auto‑created on startup)
+* **🧠 Track Thoughts, 📝 Plans, and ✅ Changes:** Dedicated models and storage for each concept.
+* **🔗 Interconnected Data:** Link thoughts to plans (many-to-many) and changes back to plans (many-to-one).
+* **🌐 Web Interface:** Simple HTML views for Browse recent activity, thoughts, plans, and changes.
+* **🔌 JSON API:** Endpoints for programmatic data retrieval (recent items, all thoughts/plans/changes).
+* **🤖 Agent Tools (MCP):** Exposes functions via `mcp-server` for AI agents to interact with the TPC store (`add_thought`, `create_plan`, `log_change`, `get_...`).
+* **💾 Database Backend:** Uses SQLAlchemy (defaults to SQLite, easily configurable via URL).
+* **⚙️ Configurable:** Set DB URL, host, port, and agent communication transport (SSE/stdio) via `.env`.
+* **🪄 Auto Table Creation:** Database tables are created automatically on first run if they don't exist.
 
-## Running the Server
+---
 
-- **Default (SSE transport)**
-  ```bash
+## 🛠️ Installation & Setup
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone [https://github.com/suttonwilliamd/tpc-server.git](https://github.com/suttonwilliamd/tpc-server.git)
+    cd tpc-server
+    ```
+
+2.  **Create & Activate Virtual Environment:**
+    ```bash
+    # Create environment
+    python -m venv venv
+
+    # Activate (macOS/Linux)
+    source venv/bin/activate
+
+    # Activate (Windows - Git Bash/WSL)
+    source venv/Scripts/activate
+
+    # Activate (Windows - Command Prompt/PowerShell)
+    .\venv\Scripts\activate
+    ```
+
+3.  **Install Dependencies:**
+    *(Ensure you have a `requirements.txt` file. If not, create one based on the imports in `main.py`)*
+    ```
+    # Example requirements.txt
+    fastapi
+    uvicorn[standard]
+    mcp-server
+    sqlalchemy
+    python-dotenv
+    jinja2
+    # Add database drivers if needed, e.g., psycopg2-binary
+    ```
+    Install using:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Configure Environment:**
+    Create a `.env` file in the project root:
+    ```dotenv
+    # .env file
+
+    # --- Database ---
+    # Default: SQLite in project root. Use postgresql://user:pass@host:port/db for PostgreSQL, etc.
+    DATABASE_URL="sqlite:///./tpc_server.db"
+
+    # --- Server Network ---
+    HOST="0.0.0.0"     # Listen on all network interfaces
+    PORT="8050"        # Port for FastAPI and MCP SSE
+
+    # --- Agent Communication ---
+    # 'sse' (Server-Sent Events over HTTP) or 'stdio' (Standard Input/Output)
+    TRANSPORT="sse"
+    ```
+
+---
+
+## ▶️ Running the Server
+
+Make sure your virtual environment is active and you're in the project root.
+
+```bash
 python main.py
-  ```
-- **StdIO transport**
-  ```bash
-TRANSPORT=stdio python main.py
-  ```
-The app will be available at `http://{HOST}:{PORT}` (defaults to `0.0.0.0:8050`).
+````
 
-## Web UI Endpoints
+The server will start, displaying logs from Uvicorn (for FastAPI) and potentially the MCP server. You should see output indicating the server is running on the configured `HOST` and `PORT`.
 
-- `GET /` – Home page
-- `GET /thoughts` – List and add Thoughts
-- `GET /plans` – List and add Plans
-- `GET /changes` – List and add Changes
+-----
 
-## JSON API
+## 💡 Usage
 
-- `GET /api/recent-activity` – Last 10 items (Thoughts, Plans, Changes)
-- `GET /api/thoughts` – All Thoughts
-- `GET /api/plans` – All Plans
-- `GET /api/changes` – All Changes (with `plan_title`)
+### 🖥️ Web Interface
 
-Responses use ISO‑formatted timestamps and follow REST conventions.
+Access the simple web UI through your browser (default: `http://localhost:8050`):
 
-## Agent (LLM) Tools
+  * `/`: Overview of the 10 most recent activities.
+  * `/thoughts`: List all recorded thoughts.
+  * `/plans`: List all recorded plans.
+  * `/changes`: List all recorded changes (with associated plan titles).
 
-FastMCP exposes the following RPC tools for autonomous agents:
+### 💻 JSON API
 
-| Tool                | Signature                                           | Purpose                                   |
-|---------------------|-----------------------------------------------------|-------------------------------------------|
-| `add_thought`       | `(content, agent_signature, plan_ids?)->str`       | Record a new Thought                     |
-| `create_plan`       | `(title, description, agent_signature, thought_ids?)->str` | Define a new Plan                |
-| `log_change`        | `(description, agent_signature, plan_id)->str`     | Log a Change under a Plan                 |
-| `get_recent_thoughts` | `(limit=5)->JSON`                                 | Fetch recent Thoughts                    |
-| `get_active_plans`  | `()->JSON`                                         | List active Plans                        |
-| `get_changes_by_plan` | `(plan_id)->JSON`                                | List Changes for a Plan                  |
-| `get_thought_details` | `(thought_id)->JSON`                             | Get Thought with linked Plans            |
-| `get_plan_details`  | `(plan_id)->JSON`                                  | Get Plan with linked Thoughts & Changes  |
+Fetch data programmatically:
 
-Agents should log only codebase or deliverable changes (e.g., “Implemented auth endpoint”) and avoid environment or mode‑switch actions.
+  * `GET /api/recent-activity`: Combined list of the 10 most recent thoughts, plans, and changes.
+  * `GET /api/thoughts`: List of all thoughts.
+  * `GET /api/plans`: List of all plans.
+  * `GET /api/changes`: List of all changes (including `plan_title`).
 
-## Development
+### 🤖 Agent Tools (via MCP)
 
-- Templates: `templates/`
-- Static: `static/`
-- Main code: `main.py`, `tpc_server.py`
-- Add new tools by decorating functions with `@mcp.tool()`.
+AI Agents connect to the MCP server (using the configured `TRANSPORT`) to use these tools:
 
-### Contributing
+  * `add_thought(...)`: Record a new thought.
+  * `create_plan(...)`: Define a new plan.
+  * `log_change(...)`: Log an action taken against a plan.
+  * `get_recent_thoughts(...)`: Retrieve latest thoughts.
+  * `get_active_plans()`: Retrieve all 'active' plans.
+  * `get_changes_by_plan(...)`: Get changes for a specific plan ID.
+  * `get_thought_details(...)`: Get details for a specific thought ID (incl. linked plans).
+  * `get_plan_details(...)`: Get details for a specific plan ID (incl. linked thoughts/changes).
 
-1. Fork the repo
-2. Create branch (`git checkout -b feature/xyz`)
-3. Commit changes
-4. Open a Pull Request
+*(Refer to `LLM.txt` for detailed agent instructions on tool arguments and usage.)*
 
+-----
+
+## 🗄️ Database
+
+  * Defaults to a **SQLite** file (`tpc_server.db`) in the project directory - simple and requires no separate DB server.
+  * Easily switch to **PostgreSQL, MySQL**, etc., by changing `DATABASE_URL` in `.env` and installing the appropriate driver (e.g., `pip install psycopg2-binary`).
+  * Tables are created automatically by SQLAlchemy if they don't exist upon server start.
+
+-----
+
+## 🙌 Contributing
+
+Contributions, issues, and feature requests are welcome\! Feel free to check the [issues page](https://www.google.com/search?q=https://github.com/suttonwilliamd/tpc-server/issues) or submit a pull request.
