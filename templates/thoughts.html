@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Thoughts</h2>
+    <div class="mb-3">
+        <a href="/" class="btn btn-outline-secondary">Back to Home</a>
+    </div>
+    
+    <div class="list-group">
+        {% for thought in thoughts %}
+        <a href="#" class="list-group-item list-group-item-action">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1">{{ thought.content|truncate(100) }}</h5>
+                <small>{{ thought.created_at }}</small>
+            </div>
+            <p class="mb-1">By: {{ thought.agent_signature }}</p>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

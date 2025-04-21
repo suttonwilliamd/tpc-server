@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Plans</h2>
+    <div class="mb-3">
+        <a href="/" class="btn btn-outline-secondary">Back to Home</a>
+    </div>
+    
+    <div class="row">
+        {% for plan in plans %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ plan.title }}</h5>
+                    <h6 class="card-subtitle mb-2 text-muted">
+                        Version {{ plan.version }} | Status: <span class="badge bg-{{ 'success' if plan.status == 'active' else 'warning' }}">{{ plan.status }}</span>
+                    </h6>
+                    <p class="card-text">{{ plan.description|truncate(200) }}</p>
+                    <a href="/plans/{{ plan.id }}" class="card-link">View Details</a>
+                </div>
+                <div class="card-footer text-muted">
+                    Created by {{ plan.agent_signature }} on {{ plan.created_at }}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

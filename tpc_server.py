@@ -1,3 +1,4 @@
+from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP, Context
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
@@ -112,6 +113,9 @@ Base.metadata.create_all(bind=engine)
 class TPCContext:
     """Context for the TPC MCP server."""
     db_session: sessionmaker
+    
+    def __iter__(self):
+        yield "db_session", self.db_session
 
 @asynccontextmanager
 async def tpc_lifespan(server: FastMCP) -> AsyncIterator[TPCContext]:
@@ -133,15 +137,157 @@ async def tpc_lifespan(server: FastMCP) -> AsyncIterator[TPCContext]:
         # No explicit cleanup needed
         pass
 
+# Initialize FastAPI app
+app = FastAPI(lifespan=tpc_lifespan)
+
 # Initialize FastMCP server
 mcp = FastMCP(
     "mcp-tpc",
     description="MCP server for tracking thoughts, plans, and changes",
-    lifespan=tpc_lifespan,
+    app=app,
     host=os.getenv("HOST", "0.0.0.0"),
     port=os.getenv("PORT", "8050"),
     log_level="ERROR"
 )
+
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+# Setup templates and static files
+templates = Jinja2Templates(directory="templates")
+templates.env.globals.update({
+    'now': datetime.utcnow
+})
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Web Interface Routes
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """Root endpoint serving the index page"""
+    return templates.TemplateResponse("index.html", {"request": {}})
+
+@app.get("/thoughts", response_class=HTMLResponse)
+async def read_thoughts():
+    """Endpoint serving the thoughts page"""
+    session = SessionLocal()
+    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).all()
+    session.close()
+    return templates.TemplateResponse(
+        "thoughts.html",
+        {"request": {}, "thoughts": thoughts}
+    )
+
+@app.get("/plans", response_class=HTMLResponse)
+async def read_plans():
+    """Endpoint serving the plans page"""
+    session = SessionLocal()
+    plans = session.query(Plan).order_by(Plan.created_at.desc()).all()
+    session.close()
+    return templates.TemplateResponse(
+        "plans.html",
+        {"request": {}, "plans": plans}
+    )
+
+@app.get("/changes", response_class=HTMLResponse)
+async def read_changes():
+    """Endpoint serving the changes page"""
+    session = SessionLocal()
+    changes = session.query(
+        Change,
+        Plan.title.label('plan_title')
+    ).outerjoin(
+        Plan, Change.plan_id == Plan.id
+    ).order_by(Change.created_at.desc()).all()
+    session.close()
+    return templates.TemplateResponse(
+        "changes.html",
+        {"request": {}, "changes": changes}
+    )
+
+# API Endpoints (FastAPI routes)
+@app.get("/api/recent-activity")
+async def api_recent_activity():
+    """Combines recent thoughts, plans and changes"""
+    session = SessionLocal()
+    
+    # Get recent items
+    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).limit(5).all()
+    plans = session.query(Plan).order_by(Plan.created_at.desc()).limit(5).all()
+    changes = session.query(Change).order_by(Change.created_at.desc()).limit(5).all()
+    
+    # Format results
+    result = []
+    for thought in thoughts:
+        result.append({
+            "type": "thought",
+            "id": thought.id,
+            "content": thought.content,
+            "timestamp": thought.created_at,
+            "agent": thought.agent_signature
+        })
+    
+    for plan in plans:
+        result.append({
+            "type": "plan",
+            "id": plan.id,
+            "title": plan.title,
+            "content": plan.description,
+            "timestamp": plan.created_at,
+            "agent": plan.agent_signature
+        })
+    
+    for change in changes:
+        result.append({
+            "type": "change",
+            "id": change.id,
+            "content": change.description,
+            "timestamp": change.created_at,
+            "agent": change.agent_signature
+        })
+    
+    session.close()
+    
+    # Sort combined results by timestamp
+    result.sort(key=lambda x: x["timestamp"], reverse=True)
+    return result[:10]
+
+@app.get("/api/thoughts")
+async def get_all_thoughts():
+    """Get all thoughts"""
+    session = SessionLocal()
+    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).all()
+    session.close()
+    return thoughts
+
+@app.get("/api/plans")
+async def get_all_plans():
+    """Get all plans"""
+    session = SessionLocal()
+    plans = session.query(Plan).order_by(Plan.created_at.desc()).all()
+    session.close()
+    return plans
+
+@app.get("/api/changes")
+async def get_all_changes():
+    """Get all changes with plan titles"""
+    session = SessionLocal()
+    changes = session.query(
+        Change,
+        Plan.title.label('plan_title')
+    ).outerjoin(
+        Plan, Change.plan_id == Plan.id
+    ).order_by(Change.created_at.desc()).all()
+    
+    result = []
+    for change, plan_title in changes:
+        change_dict = change.__dict__
+        change_dict['plan_title'] = plan_title
+        result.append(change_dict)
+    
+    session.close()
+    return result
+
 
 
 # Agent Tools
