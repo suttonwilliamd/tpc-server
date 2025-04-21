@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8">
+            <h2>Recent Activity</h2>
+            <div id="recent-activity" class="list-group">
+                <!-- Activity will be loaded here -->
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    Quick Actions
+                </div>
+                <div class="card-body">
+                    <a href="/thoughts" class="btn btn-primary w-100 mb-2">View Thoughts</a>
+                    <a href="/plans" class="btn btn-success w-100 mb-2">View Plans</a>
+                    <a href="/changes" class="btn btn-info w-100">View Changes</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/api/recent-activity')
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('recent-activity');
+            data.forEach(item => {
+                const badgeClass = {
+                    'thought': 'bg-primary',
+                    'plan': 'bg-success',
+                    'change': 'bg-info'
+                }[item.type];
+                
+                const element = document.createElement('a');
+                element.className = 'list-group-item list-group-item-action';
+                element.innerHTML = `
+                    <div class="d-flex w-100 justify-content-between">
+                        <h5 class="mb-1">
+                            <span class="badge ${badgeClass} me-2">${item.type}</span>
+                            ${item.content.substring(0, 100)}
+                        </h5>
+                        <small>${new Date(item.timestamp).toLocaleString()}</small>
+                    </div>
+                    <p class="mb-1">By: ${item.agent}</p>
+                `;
+                container.appendChild(element);
+            });
+        });
+});
+</script>
+{% endblock %}
