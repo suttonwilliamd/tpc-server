@@ -199,10 +199,21 @@ async def read_changes():
     ).outerjoin(
         Plan, Change.plan_id == Plan.id
     ).order_by(Change.created_at.desc()).all()
+    
+    # Convert to list of dicts for easier template access
+    changes_data = [{
+        'id': change.id,
+        'description': change.description,
+        'created_at': change.created_at,
+        'agent_signature': change.agent_signature,
+        'plan_id': change.plan_id,
+        'plan_title': plan_title
+    } for change, plan_title in changes]
+    
     session.close()
     return templates.TemplateResponse(
         "changes.html",
-        {"request": {}, "changes": changes}
+        {"request": {}, "changes": changes_data}
     )
 
 # API Endpoints (FastAPI routes)
