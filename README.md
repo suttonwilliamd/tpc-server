@@ -1,136 +1,111 @@
-# TPC Server - Model Context Protocol (MCP) Implementation
+# TPC Server
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![SQLAlchemy 2.0](https://img.shields.io/badge/SQLAlchemy-2.0-green.svg)](https://www.sqlalchemy.org/)
+[![GitHub Stars](https://img.shields.io/github/stars/suttonwilliamd/tpc-server)](https://github.com/suttonwilliamd/tpc-server/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-A production-ready MCP server for tracking AI team coordination through **Thoughts, Plans, and Changelog (TPC)** entries. Built with SQLAlchemy async and FastMCP, optimized for software development collaboration.
+**Thoughts – Plans – Changelog** is an MCP‑compliant server for coordinating AI‑driven development workflows. Built with FastAPI, FastMCP, and SQLAlchemy, it tracks agent **Thoughts**, **Plans**, and **Changes** via both a web UI and JSON API.
 
----
+## Overview
+
+- **Thoughts**: capture ideas, insights, and design considerations.
+- **Plans**: structure tasks and link to relevant Thoughts.
+- **Changes**: record discrete modifications tied to specific Plans.
+- **MCP Tools**: a suite of FastMCP‑exposed RPCs for autonomous LLM agents.
+- **Web Interface**: view and add entries under `/thoughts`, `/plans`, `/changes`.
+- **JSON API**: endpoints under `/api` for integrations and automation.
+
+Repository: <https://github.com/suttonwilliamd/tpc-server>
 
 ## Features
 
-✅ **Structured Collaboration**  
-- Track decision-making (`Thoughts`), task coordination (`Plans`), and progress (`Changelog`)  
-- Dependency management for complex workflows  
-- Uncertainty flagging for critical design decisions  
+- 📦 **Structured Collaboration**: many‑to‑many Thoughts↔Plans, one‑to‑many Plans→Changes.
+- ⚡️ **Async Performance**: FastAPI + async SQLAlchemy with efficient connection pooling.
+- 🛠️ **Developer‑First**: Pydantic validation, Jinja2 templates, static asset support.
+- 🤖 **Agentic Integration**: FastMCP tools let AI agents record and query project data.
 
-✅ **Performance Optimized**  
-- Async SQLAlchemy 2.0 with connection pooling  
-- Time-ordered UUIDs (UUID7) for chronological traceability  
-- Cached queries with 5-minute TTL  
+## Prerequisites
 
-✅ **Developer-Friendly**  
-- Full MCP interface compliance  
-- REST-like resource endpoints for data access  
-- Comprehensive Pydantic validation  
+- Python 3.10+
+- SQLite (default) or any SQLAlchemy‑compatible database (PostgreSQL, MySQL, etc.)
+- `poetry` or `pip` + `virtualenv`
+- A `.env` file with:
+  ```dotenv
+  DATABASE_URL=sqlite:///./tpc_server.db
+  HOST=0.0.0.0
+  PORT=8050
+  ```
 
----
+## Installation
 
-## Quick Start
-
-```bash
-# 1. Clone repository
+1. **Clone the repo**
+   ```bash
 git clone https://github.com/suttonwilliamd/tpc-server.git
 cd tpc-server
-
-# 2. Install dependencies
+   ```
+2. **Set up environment**
+   ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+   ```
+3. **Initialize the database** (tables auto‑created on startup)
 
-# 3. Run server (SQLite auto-created)
-uvicorn main:mcp --reload --port 8000
-```
+## Running the Server
 
----
+- **Default (SSE transport)**
+  ```bash
+python main.py
+  ```
+- **StdIO transport**
+  ```bash
+TRANSPORT=stdio python main.py
+  ```
+The app will be available at `http://{HOST}:{PORT}` (defaults to `0.0.0.0:8050`).
 
-## Core Concepts
+## Web UI Endpoints
 
-### 1. Thoughts
-```python
-# Log design decisions or uncertainties
-create_thought(
-    content="Choosing React over Vue for frontend",
-    plan_id="pl_frontend_123",
-    uncertainty_flag=True
-)
-```
+- `GET /` – Home page
+- `GET /thoughts` – List and add Thoughts
+- `GET /plans` – List and add Plans
+- `GET /changes` – List and add Changes
 
-### 2. Plans
-```python
-# Define tasks with dependencies
-create_plan(
-    description="Implement user authentication",
-    dependencies=["pl_database_setup", "pl_security_audit"]
-)
-```
+## JSON API
 
-### 3. Changelog
-```python
-# Track implementation progress
-log_change(
-    plan_id="pl_auth_456",
-    description="Added JWT token endpoints",
-    thought_ids=["th_design_decision_789"]
-)
-```
+- `GET /api/recent-activity` – Last 10 items (Thoughts, Plans, Changes)
+- `GET /api/thoughts` – All Thoughts
+- `GET /api/plans` – All Plans
+- `GET /api/changes` – All Changes (with `plan_title`)
 
----
+Responses use ISO‑formatted timestamps and follow REST conventions.
 
-## Advanced Usage
+## Agent (LLM) Tools
 
-### AI Agent Integration
-```python
-# Example pre-commit hook validation
-modified_files = get_git_changes()
-tpc_entries = query_tpc_server()
+FastMCP exposes the following RPC tools for autonomous agents:
 
-for file in modified_files:
-    if not has_corresponding_tpc_entry(file, tpc_entries):
-        raise Exception(f"Missing TPC entry for {file}")
-```
+| Tool                | Signature                                           | Purpose                                   |
+|---------------------|-----------------------------------------------------|-------------------------------------------|
+| `add_thought`       | `(content, agent_signature, plan_ids?)->str`       | Record a new Thought                     |
+| `create_plan`       | `(title, description, agent_signature, thought_ids?)->str` | Define a new Plan                |
+| `log_change`        | `(description, agent_signature, plan_id)->str`     | Log a Change under a Plan                 |
+| `get_recent_thoughts` | `(limit=5)->JSON`                                 | Fetch recent Thoughts                    |
+| `get_active_plans`  | `()->JSON`                                         | List active Plans                        |
+| `get_changes_by_plan` | `(plan_id)->JSON`                                | List Changes for a Plan                  |
+| `get_thought_details` | `(thought_id)->JSON`                             | Get Thought with linked Plans            |
+| `get_plan_details`  | `(plan_id)->JSON`                                  | Get Plan with linked Thoughts & Changes  |
 
-### API Reference
-| Endpoint               | Method | Description                          |
-|------------------------|--------|--------------------------------------|
-| `/mcp/thoughts`        | POST   | Create new thought                   |
-| `/mcp/plans`           | POST   | Define new plan with dependencies    |
-| `/mcp/changelog`       | POST   | Log implementation changes           |
-| `/mcp/plans/{id}`      | GET    | Get plan details with dependencies   |
+Agents should log only codebase or deliverable changes (e.g., “Implemented auth endpoint”) and avoid environment or mode‑switch actions.
 
----
+## Development
 
-## Architecture
+- Templates: `templates/`
+- Static: `static/`
+- Main code: `main.py`, `tpc_server.py`
+- Add new tools by decorating functions with `@mcp.tool()`.
 
-```mermaid
-graph TD
-    A[Thoughts] -->|reference| B(Plans)
-    B -->|depend_on| B
-    C[Changelog] -->|link| A
-    C -->|track| B
-```
+### Contributing
 
----
+1. Fork the repo
+2. Create branch (`git checkout -b feature/xyz`)
+3. Commit changes
+4. Open a Pull Request
 
-## Production Setup
-
-```bash
-# Optimal deployment
-uvicorn main:mcp \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --workers 1 \  # Recommended for SQLite
-  --proxy-headers
-```
-
----
-
-## Contributing
-
-1. Fork repository
-2. Create feature branch (`git checkout -b feature/tpc-enhancements`)
-3. Commit changes (`git commit -am 'Add new feature'`)
-4. Push branch (`git push origin feature/tpc-enhancements`)
-5. Open pull request
-
----
-
-Inspired by the [Awesome MCP Servers](https://github.com/wong2/awesome-mcp-servers) community . For MCP client implementations, see [FastMCP documentation](https://github.com/modelcontextprotocol/servers).
