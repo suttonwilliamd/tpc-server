@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from mcp.server.fastmcp import FastMCP, Context
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
@@ -187,6 +187,38 @@ async def read_plans():
     return templates.TemplateResponse(
         "plans.html",
         {"request": {}, "plans": plans}
+    )
+
+@app.get("/plans/{plan_id}", response_class=HTMLResponse)
+async def read_plan(plan_id: str):
+    """Endpoint serving a single plan's details"""
+    session = SessionLocal()
+    plan = session.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    # Get associated thoughts via join table
+    thoughts = session.query(Thought).join(
+        ThoughtPlanAssociation,
+        Thought.id == ThoughtPlanAssociation.thought_id
+    ).filter(
+        ThoughtPlanAssociation.plan_id == plan_id
+    ).all()
+    
+    # Get associated changes
+    changes = session.query(Change).filter(
+        Change.plan_id == plan_id
+    ).all()
+    
+    session.close()
+    return templates.TemplateResponse(
+        "plan_detail.html",
+        {
+            "request": {},
+            "plan": plan,
+            "thoughts": thoughts,
+            "changes": changes
+        }
     )
 
 @app.get("/changes", response_class=HTMLResponse)

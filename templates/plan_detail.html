@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h2>{{ plan.title }}</h2>
+        </div>
+        <div class="card-body">
+            <p class="card-text">{{ plan.description }}</p>
+            <p class="text-muted">Created: {{ plan.created_at }}</p>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h3>Associated Thoughts</h3>
+        {% if thoughts %}
+            <div class="list-group">
+                {% for thought in thoughts %}
+                <div class="list-group-item">
+                    <p>{{ thought.content }}</p>
+                    <small class="text-muted">By: {{ thought.agent_signature }}</small>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No thoughts associated with this plan</p>
+        {% endif %}
+    </div>
+
+    <div class="mt-4">
+        <h3>Associated Changes</h3>
+        {% if changes %}
+            <div class="list-group">
+                {% for change in changes %}
+                <div class="list-group-item">
+                    <p>{{ change.description }}</p>
+                    <small class="text-muted">By: {{ change.agent_signature }}</small>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No changes associated with this plan</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
