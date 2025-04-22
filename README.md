@@ -56,16 +56,6 @@ This server facilitates recording these items and their relationships (Thoughts 
     ```
 
 3.  **Install Dependencies:**
-    *(Ensure you have a `requirements.txt` file. If not, create one based on the imports in `main.py`)*
-    ```
-    # Example requirements.txt
-    fastapi
-    uvicorn[standard]
-    mcp-server
-    sqlalchemy
-    python-dotenv
-    jinja2
-    # Add database drivers if needed, e.g., psycopg2-binary
     ```
     Install using:
     ```bash
