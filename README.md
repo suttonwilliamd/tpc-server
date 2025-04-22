@@ -141,4 +141,4 @@ AI Agents connect to the MCP server (using the configured `TRANSPORT`) to use th
 
 ## 🙌 Contributing
 
-Contributions, issues, and feature requests are welcome\! Feel free to check the [issues page](https://www.google.com/search?q=https://github.com/suttonwilliamd/tpc-server/issues) or submit a pull request.
+Contributions, issues, and feature requests are welcome\! Feel free to check the [issues page](https://github.com/suttonwilliamd/tpc-server/issues) or submit a pull request.
