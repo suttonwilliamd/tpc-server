@@ -19,7 +19,7 @@ This server facilitates recording these items and their relationships (Thoughts 
 
 ---
 
-##🚀 Features
+## 🚀 Features
 
 * **🧠 Track Thoughts, 📝 Plans, and ✅ Changes:** Dedicated models and storage for each concept.
 * **🔗 Interconnected Data:** Link thoughts to plans (many-to-many) and changes back to plans (many-to-one).
