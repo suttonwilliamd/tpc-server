@@ -1,5 +1,12 @@
-from fastapi import FastAPI, HTTPException
-from mcp.server.fastmcp import FastMCP, Context
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.openapi.utils import get_openapi
+from fastmcp import FastMCP, Context
+from datetime import datetime
+import logging
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -9,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import asyncio
 import json
 import os
@@ -118,18 +125,19 @@ class TPCContext:
         yield "db_session", self.db_session
 
 @asynccontextmanager
-async def tpc_lifespan(server: FastMCP) -> AsyncIterator[TPCContext]:
+async def tpc_lifespan(server: FastMCP, ctx=None) -> AsyncIterator[TPCContext]:
     """
     Manages the TPC server lifecycle.
     
     Args:
         server: The FastMCP server instance
+        ctx: Optional context parameter for CLI compatibility
         
     Yields:
         TPCContext: The context containing the database session
     """
     # Print startup message
-     
+    print(f"Starting TPC server with context: {ctx}")
     
     try:
         yield TPCContext(db_session=SessionLocal)
@@ -137,17 +145,54 @@ async def tpc_lifespan(server: FastMCP) -> AsyncIterator[TPCContext]:
         # No explicit cleanup needed
         pass
 
-# Initialize FastAPI app
-app = FastAPI(lifespan=tpc_lifespan)
+# Initialize FastAPI app with enhanced configuration
+app = FastAPI(
+    lifespan=tpc_lifespan,
+    title="TPC Server API",
+    description="Thought-Plan-Change management system with MCP integration",
+    version="2.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json"
+)
 
-# Initialize FastMCP server
+
+# Custom OpenAPI schema
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+        
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    
+    # Add MCP-specific documentation
+    openapi_schema["info"]["x-mcp"] = {
+        "version": "2.0",
+        "features": ["resources", "tools", "metrics"]
+    }
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+# Initialize FastMCP server with enhanced configuration
 mcp = FastMCP(
     "mcp-tpc",
     description="MCP server for tracking thoughts, plans, and changes",
     app=app,
     host=os.getenv("HOST", "0.0.0.0"),
     port=os.getenv("PORT", "8050"),
-    log_level="ERROR"
+    log_level="INFO",
+    enable_metrics=True,
+    enable_tracing=True,
+    request_timeout=30,
+    max_concurrent_requests=100,
+    lifespan=tpc_lifespan  # Explicitly pass lifespan manager
 )
 
 from fastapi.responses import HTMLResponse, FileResponse
@@ -155,11 +200,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 # Setup templates and static files
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 templates.env.globals.update({
     'now': datetime.utcnow
 })
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 # Web Interface Routes
 @app.get("/", response_class=HTMLResponse)
@@ -333,21 +378,174 @@ async def get_all_changes():
 
 
 
-# Agent Tools
-@mcp.tool()
-async def add_thought(ctx: Context, content: str, agent_signature: str, plan_ids: Optional[List[str]] = None) -> str:
+# Resources
+@mcp.resource("tpc://thoughts/active")
+async def get_active_thoughts() -> List[Dict[str, Any]]:
+    """Returns all active thoughts with their associated plans."""
+    session = SessionLocal()
+    try:
+        thoughts = session.query(Thought)\
+            .filter(Thought.status == "active")\
+            .order_by(Thought.created_at.desc())\
+            .all()
+            
+        result = []
+        for thought in thoughts:
+            thought_dict = {
+                "id": thought.id,
+                "content": thought.content,
+                "created_at": thought.created_at.isoformat(),
+                "agent_signature": thought.agent_signature,
+                "plans": []
+            }
+            
+            # Get associated plans
+            plans = session.query(Plan)\
+                .join(ThoughtPlanAssociation, Plan.id == ThoughtPlanAssociation.plan_id)\
+                .filter(ThoughtPlanAssociation.thought_id == thought.id)\
+                .all()
+                
+            for plan in plans:
+                thought_dict["plans"].append({
+                    "id": plan.id,
+                    "title": plan.title
+                })
+                
+            result.append(thought_dict)
+            
+        return result
+    finally:
+        session.close()
+
+@mcp.resource("tpc://plans/active")
+async def get_active_plans() -> List[Dict[str, Any]]:
+    """Returns all active plans with their associated thoughts."""
+    session = SessionLocal()
+    try:
+        plans = session.query(Plan)\
+            .filter(Plan.status == "active")\
+            .order_by(Plan.created_at.desc())\
+            .all()
+            
+        result = []
+        for plan in plans:
+            plan_dict = {
+                "id": plan.id,
+                "title": plan.title,
+                "created_at": plan.created_at.isoformat(),
+                "agent_signature": plan.agent_signature,
+                "thoughts": []
+            }
+            
+            # Get associated thoughts
+            thoughts = session.query(Thought)\
+                .join(ThoughtPlanAssociation, Thought.id == ThoughtPlanAssociation.thought_id)\
+                .filter(ThoughtPlanAssociation.plan_id == plan.id)\
+                .all()
+                
+            for thought in thoughts:
+                plan_dict["thoughts"].append({
+                    "id": thought.id,
+                    "content": thought.content[:100] + "..." if len(thought.content) > 100 else thought.content
+                })
+                
+            result.append(plan_dict)
+            
+        return result
+    finally:
+        session.close()
+
+@mcp.resource("tpc://changes/recent?limit={limit}")
+async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
+    """Returns recent changes with plan details."""
+    session = SessionLocal()
+    try:
+        changes = session.query(Change, Plan.title)\
+            .join(Plan, Change.plan_id == Plan.id)\
+            .order_by(Change.created_at.desc())\
+            .limit(limit)\
+            .all()
+            
+        return [{
+            "id": change.id,
+            "description": change.description,
+            "created_at": change.created_at.isoformat(),
+            "agent_signature": change.agent_signature,
+            "plan_id": change.plan_id,
+            "plan_title": title
+        } for change, title in changes]
+    finally:
+        session.close()
+
+# Agent Tools - Single Operations
+# Bulk Operations
+@mcp.tool(
+    name="add_thoughts_bulk",
+    description="Adds multiple thoughts in a single operation"
+)
+async def add_thoughts_bulk(
+    thoughts: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of thought objects with content, agent_signature and optional plan_ids"
+    )
+) -> List[str]:
+    """Add multiple thoughts in a single transaction."""
+    session = SessionLocal()
+    try:
+        results = []
+        
+        for thought_data in thoughts:
+            thought_id = str(uuid.uuid4())
+            thought = Thought(
+                id=thought_id,
+                content=thought_data["content"],
+                agent_signature=thought_data["agent_signature"],
+                created_at=datetime.utcnow(),
+                status="active"
+            )
+            session.add(thought)
+            
+            if "plan_ids" in thought_data:
+                for plan_id in thought_data["plan_ids"]:
+                    plan = session.query(Plan).filter(Plan.id == plan_id).first()
+                    if plan:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=thought_data["agent_signature"]
+                        )
+                        session.add(association)
+            
+            results.append(f"Added thought: {thought_id}")
+        
+        session.commit()
+        return results
+        
+    except Exception as e:
+        session.rollback()
+        return [f"Error in bulk operation: {str(e)}"]
+    finally:
+        session.close()
+
+@mcp.tool(
+    name="add_thought",
+    description="Records a new insight, idea or consideration with optional plan associations"
+)
+async def add_thought(
+    content: str = Field(..., description="The content of the thought"),
+    agent_signature: str = Field(..., description="Identifier for the creating agent"),
+    plan_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of plan IDs to associate"
+    )
+) -> str:
     """Add a new thought to the database.
     
     This tool records a new insight, idea, or consideration. Thoughts can optionally be linked to existing plans.
-    
-    Args:
-        ctx: The MCP server provided context
-        content: The content of the thought
-        agent_signature: Identifier for the agent creating the thought
-        plan_ids: Optional list of plan IDs to associate with this thought
     """
+    session = SessionLocal()
     try:
-        session = ctx.request_context.lifespan_context.db_session()
         
         # Create new thought
         thought_id = str(uuid.uuid4())
@@ -388,22 +586,76 @@ async def add_thought(ctx: Context, content: str, agent_signature: str, plan_ids
             session.close()
         return f"Error adding thought: {str(e)}"
 
-@mcp.tool()
-async def create_plan(ctx: Context, title: str, description: str, agent_signature: str, 
-                     thought_ids: Optional[List[str]] = None) -> str:
+@mcp.tool(
+    name="create_plans_bulk",
+    description="Creates multiple plans in a single operation"
+)
+async def create_plans_bulk(
+    plans: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of plan objects with title, description, agent_signature and optional thought_ids"
+    )
+) -> List[str]:
+    """Create multiple plans in a single transaction."""
+    session = SessionLocal()
+    try:
+        results = []
+        
+        for plan_data in plans:
+            plan_id = str(uuid.uuid4())
+            plan = Plan(
+                id=plan_id,
+                title=plan_data["title"],
+                description=plan_data["description"],
+                agent_signature=plan_data["agent_signature"],
+                created_at=datetime.utcnow(),
+                version="1",
+                status="active"
+            )
+            session.add(plan)
+            
+            if "thought_ids" in plan_data:
+                for thought_id in plan_data["thought_ids"]:
+                    thought = session.query(Thought).filter(Thought.id == thought_id).first()
+                    if thought:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=plan_data["agent_signature"]
+                        )
+                        session.add(association)
+            
+            results.append(f"Created plan: {plan_id}")
+        
+        session.commit()
+        return results
+        
+    except Exception as e:
+        session.rollback()
+        return [f"Error in bulk operation: {str(e)}"]
+    finally:
+        session.close()
+
+@mcp.tool(
+    name="create_plan",
+    description="Creates a new plan or intended approach with optional thought associations"
+)
+async def create_plan(
+    title: str = Field(..., description="The title of the plan"),
+    description: str = Field(..., description="Detailed description of the plan"),
+    agent_signature: str = Field(..., description="Identifier for the creating agent"),
+    thought_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of thought IDs to associate"
+    )
+) -> str:
     """Create a new plan in the database.
     
     This tool records a new plan or intended approach. Plans can optionally be linked to existing thoughts.
-    
-    Args:
-        ctx: The MCP server provided context
-        title: The title of the plan
-        description: Detailed description of the plan
-        agent_signature: Identifier for the agent creating the plan
-        thought_ids: Optional list of thought IDs to associate with this plan
     """
+    session = SessionLocal()
     try:
-        session = ctx.request_context.lifespan_context.db_session()
         
         # Create new plan
         plan_id = str(uuid.uuid4())
@@ -446,20 +698,63 @@ async def create_plan(ctx: Context, title: str, description: str, agent_signatur
             session.close()
         return f"Error creating plan: {str(e)}"
 
-@mcp.tool()
-async def log_change(ctx: Context, description: str, agent_signature: str, plan_id: str) -> str:
+@mcp.tool(
+    name="log_changes_bulk",
+    description="Logs multiple changes in a single operation"
+)
+async def log_changes_bulk(
+    changes: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of change objects with description, agent_signature and plan_id"
+    )
+) -> List[str]:
+    """Log multiple changes in a single transaction."""
+    try:
+        session = SessionLocal()
+        results = []
+        
+        for change_data in changes:
+            # Verify plan exists
+            plan = session.query(Plan).filter(Plan.id == change_data["plan_id"]).first()
+            if not plan:
+                results.append(f"Error: Plan with ID {change_data['plan_id']} not found")
+                continue
+                
+            change_id = str(uuid.uuid4())
+            change = Change(
+                id=change_id,
+                description=change_data["description"],
+                agent_signature=change_data["agent_signature"],
+                created_at=datetime.utcnow(),
+                plan_id=change_data["plan_id"]
+            )
+            session.add(change)
+            results.append(f"Logged change: {change_id}")
+        
+        session.commit()
+        return results
+        
+    except Exception as e:
+        session.rollback()
+        return [f"Error in bulk operation: {str(e)}"]
+    finally:
+        session.close()
+
+@mcp.tool(
+    name="log_change",
+    description="Records a concrete modification to a project plan"
+)
+async def log_change(
+    description: str = Field(..., description="Description of the change"),
+    agent_signature: str = Field(..., description="Identifier for the agent"),
+    plan_id: str = Field(..., description="ID of the associated plan")
+) -> str:
     """Log a change to a plan.
     
     This tool records a concrete modification to a project. Every change must reference an existing plan.
-    
-    Args:
-        ctx: The MCP server provided context
-        description: Description of the change made
-        agent_signature: Identifier for the agent logging the change
-        plan_id: ID of the plan this change is associated with
     """
     try:
-        session = ctx.request_context.lifespan_context.db_session()
+        session = SessionLocal()
         
         # Verify plan exists
         plan = session.query(Plan).filter(Plan.id == plan_id).first()
