@@ -6,15 +6,23 @@ from fastapi.openapi.utils import get_openapi
 from fastmcp import FastMCP, Context
 from datetime import datetime
 import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("tpc-server")
 import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from datetime import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime, Index
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from typing import List, Optional, Dict, Any
 import asyncio
@@ -32,12 +40,15 @@ Base = declarative_base()
 class Thought(Base):
     """Model for storing agent thoughts"""
     __tablename__ = "thoughts"
+    __table_args__ = (
+        Index('ix_thought_status_created', 'status', 'created_at'),
+    )
     
     id = Column(String, primary_key=True)
     content = Column(Text, nullable=False)
-    agent_signature = Column(String, nullable=False)
-    created_at = Column(DateTime, nullable=False)
-    status = Column(String, default="active")
+    agent_signature = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    status = Column(String, default="active", index=True)
     
     # Relationship to plans (many-to-many)
     plans = relationship(
@@ -46,17 +57,34 @@ class Thought(Base):
         back_populates="thoughts"
     )
 
+class ThoughtPlanAssociation(Base):
+    """Association table for thoughts and plans"""
+    __tablename__ = "thought_plan_association"
+    __table_args__ = (
+        Index('ix_assoc_created', 'created_at'),
+        Index('ix_assoc_plan', 'plan_id'),
+    )
+    
+    thought_id = Column(String, ForeignKey("thoughts.id"), primary_key=True)
+    plan_id = Column(String, ForeignKey("plans.id"), primary_key=True, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    agent_signature = Column(String, nullable=False, index=True)
+
 class Plan(Base):
-    """Model for storing agent plans"""
+    """Model for storing execution plans"""
     __tablename__ = "plans"
+    __table_args__ = (
+        Index('ix_plan_status_created', 'status', 'created_at'),
+        Index('ix_plan_agent_created', 'agent_signature', 'created_at'),
+    )
     
     id = Column(String, primary_key=True)
-    title = Column(String, nullable=False)
+    title = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=False)
-    agent_signature = Column(String, nullable=False)
-    created_at = Column(DateTime, nullable=False)
+    agent_signature = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
     version = Column(String, default="1")
-    status = Column(String, default="active")
+    status = Column(String, default="active", index=True)
     
     # Relationship to thoughts (many-to-many)
     thoughts = relationship(
@@ -81,15 +109,6 @@ class Change(Base):
     # Relationship to plan (many-to-one)
     plan = relationship("Plan", back_populates="changes")
 
-class ThoughtPlanAssociation(Base):
-    """Association table for thoughts and plans"""
-    __tablename__ = "thought_plan_association"
-    
-    thought_id = Column(String, ForeignKey("thoughts.id"), primary_key=True)
-    plan_id = Column(String, ForeignKey("plans.id"), primary_key=True)
-    created_at = Column(DateTime, nullable=False)
-    agent_signature = Column(String, nullable=False)
-
 # Pydantic models for request/response
 class ThoughtCreate(BaseModel):
     content: str
@@ -107,13 +126,33 @@ class ChangeCreate(BaseModel):
     agent_signature: str
     plan_id: str
 
-# Database connection and session
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tpc_server.db")
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Async Database Configuration
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./tpc_server.db")
+engine = create_async_engine(
+    DATABASE_URL,
+    future=True,
+    echo=True,  # Enable SQL query logging
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600
+)
+AsyncSessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
+
+async def create_db_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+# Tables will be initialized in lifespan manager
 
 # Create dataclass for application context
 @dataclass
@@ -125,27 +164,25 @@ class TPCContext:
         yield "db_session", self.db_session
 
 @asynccontextmanager
-async def tpc_lifespan(server: FastMCP, ctx=None) -> AsyncIterator[TPCContext]:
-    """
-    Manages the TPC server lifecycle.
+async def tpc_lifespan(app: FastAPI) -> AsyncIterator[TPCContext]:
+    """Manages the TPC server lifecycle."""
+    # Initialize database
+    logger.info("Initializing database connection")
+    async with engine.begin() as conn:
+        await create_db_tables()
     
-    Args:
-        server: The FastMCP server instance
-        ctx: Optional context parameter for CLI compatibility
-        
-    Yields:
-        TPCContext: The context containing the database session
-    """
-    # Print startup message
-    print(f"Starting TPC server with context: {ctx}")
+    # Create session factory
+    async_session_factory = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
     
-    try:
-        yield TPCContext(db_session=SessionLocal)
-    finally:
-        # No explicit cleanup needed
-        pass
+    yield TPCContext(db_session=async_session_factory)
+    
+    # Cleanup
+    logger.info("Closing database connections")
+    await engine.dispose()
 
-# Initialize FastAPI app with enhanced configuration
+# Initialize FastAPI application
 app = FastAPI(
     lifespan=tpc_lifespan,
     title="TPC Server API",
@@ -180,7 +217,17 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Initialize FastMCP server with enhanced configuration
+# Initialize FastMCP with the properly configured app
+# Remove duplicate app initialization and configure middleware directly
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize FastMCP with proper ASGI configuration
 mcp = FastMCP(
     "mcp-tpc",
     description="MCP server for tracking thoughts, plans, and changes",
@@ -191,20 +238,32 @@ mcp = FastMCP(
     enable_metrics=True,
     enable_tracing=True,
     request_timeout=30,
-    max_concurrent_requests=100,
-    lifespan=tpc_lifespan  # Explicitly pass lifespan manager
+    max_concurrent_requests=100
 )
+
+# Expose primary ASGI application
+application = app
+
 
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 # Setup templates and static files
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+# Explicit path validation for templates/static
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+template_dir = os.path.join(_current_dir, "templates")
+static_dir = os.path.join(_current_dir, "static")
+
+# Create directories if missing
+os.makedirs(template_dir, exist_ok=True)
+os.makedirs(static_dir, exist_ok=True)
+
+templates = Jinja2Templates(directory=template_dir)
 templates.env.globals.update({
     'now': datetime.utcnow
 })
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Web Interface Routes
 @app.get("/", response_class=HTMLResponse)
@@ -215,9 +274,11 @@ async def read_root():
 @app.get("/thoughts", response_class=HTMLResponse)
 async def read_thoughts():
     """Endpoint serving the thoughts page"""
-    session = SessionLocal()
-    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).all()
-    session.close()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Thought).order_by(Thought.created_at.desc())
+        )
+        thoughts = result.scalars().all()
     return templates.TemplateResponse(
         "thoughts.html",
         {"request": {}, "thoughts": thoughts}
@@ -226,9 +287,11 @@ async def read_thoughts():
 @app.get("/plans", response_class=HTMLResponse)
 async def read_plans():
     """Endpoint serving the plans page"""
-    session = SessionLocal()
-    plans = session.query(Plan).order_by(Plan.created_at.desc()).all()
-    session.close()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Plan).order_by(Plan.created_at.desc())
+        )
+        plans = result.scalars().all()
     return templates.TemplateResponse(
         "plans.html",
         {"request": {}, "plans": plans}
@@ -237,25 +300,31 @@ async def read_plans():
 @app.get("/plans/{plan_id}", response_class=HTMLResponse)
 async def read_plan(plan_id: str):
     """Endpoint serving a single plan's details"""
-    session = SessionLocal()
-    plan = session.query(Plan).filter(Plan.id == plan_id).first()
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Plan).where(Plan.id == plan_id)
+        )
+        plan = result.scalars().first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Plan not found")
     
-    # Get associated thoughts via join table
-    thoughts = session.query(Thought).join(
-        ThoughtPlanAssociation,
-        Thought.id == ThoughtPlanAssociation.thought_id
-    ).filter(
-        ThoughtPlanAssociation.plan_id == plan_id
-    ).all()
+        # Get associated thoughts via join table
+        thoughts_result = await session.execute(
+            select(Thought).join(
+                ThoughtPlanAssociation,
+                Thought.id == ThoughtPlanAssociation.thought_id
+            ).where(
+                ThoughtPlanAssociation.plan_id == plan_id
+            )
+        )
+        thoughts = thoughts_result.scalars().all()
     
-    # Get associated changes
-    changes = session.query(Change).filter(
-        Change.plan_id == plan_id
-    ).all()
+        # Get associated changes
+        changes_result = await session.execute(
+            select(Change).where(Change.plan_id == plan_id)
+        )
+        changes = changes_result.scalars().all()
     
-    session.close()
     return templates.TemplateResponse(
         "plan_detail.html",
         {
@@ -269,13 +338,13 @@ async def read_plan(plan_id: str):
 @app.get("/changes", response_class=HTMLResponse)
 async def read_changes():
     """Endpoint serving the changes page"""
-    session = SessionLocal()
-    changes = session.query(
-        Change,
-        Plan.title.label('plan_title')
-    ).outerjoin(
-        Plan, Change.plan_id == Plan.id
-    ).order_by(Change.created_at.desc()).all()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Change, Plan.title)
+            .outerjoin(Plan, Change.plan_id == Plan.id)
+            .order_by(Change.created_at.desc())
+        )
+        changes = result.all()
     
     # Convert to list of dicts for easier template access
     changes_data = [{
@@ -287,22 +356,61 @@ async def read_changes():
         'plan_title': plan_title
     } for change, plan_title in changes]
     
-    session.close()
     return templates.TemplateResponse(
         "changes.html",
         {"request": {}, "changes": changes_data}
     )
 
 # API Endpoints (FastAPI routes)
+@app.get("/api/health", tags=["System Health"])
+async def health_check():
+    """Health check endpoint with database verification"""
+    try:
+        async with AsyncSessionLocal() as session:
+            # Verify database connection
+            await session.execute(select(1))
+            return {
+                "status": "ok",
+                "version": "2.0",
+                "database": "connected",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"status": "unavailable", "error": str(e)}
+        )
 @app.get("/api/recent-activity")
-async def api_recent_activity():
+async def api_recent_activity(plan_id: Optional[str] = None):
     """Combines recent thoughts, plans and changes"""
-    session = SessionLocal()
+    async with AsyncSessionLocal() as session:
+        # Get recent thoughts
+        thoughts_result = await session.execute(
+            select(Thought).order_by(Thought.created_at.desc()).limit(5)
+        )
+        thoughts = thoughts_result.scalars().all()
+
+        # Get recent plans
+        plans_result = await session.execute(
+            select(Plan).order_by(Plan.created_at.desc()).limit(5)
+        )
+        plans = plans_result.scalars().all()
+
+        # Get recent changes
+        changes_result = await session.execute(
+            select(Change).order_by(Change.created_at.desc()).limit(5)
+        )
+        changes = changes_result.scalars().all()
     
-    # Get recent items
-    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).limit(5).all()
-    plans = session.query(Plan).order_by(Plan.created_at.desc()).limit(5).all()
-    changes = session.query(Change).order_by(Change.created_at.desc()).limit(5).all()
+        # If plan_id is provided, filter changes by plan
+        if plan_id:
+            changes_result = await session.execute(
+                select(Change)
+                .where(Change.plan_id == plan_id)
+                .order_by(Change.created_at.desc())
+            )
+            changes = changes_result.scalars().all()
     
     # Format results
     result = []
@@ -334,8 +442,6 @@ async def api_recent_activity():
             "agent": change.agent_signature
         })
     
-    session.close()
-    
     # Sort combined results by timestamp
     result.sort(key=lambda x: x["timestamp"], reverse=True)
     return result[:10]
@@ -343,52 +449,54 @@ async def api_recent_activity():
 @app.get("/api/thoughts")
 async def get_all_thoughts():
     """Get all thoughts"""
-    session = SessionLocal()
-    thoughts = session.query(Thought).order_by(Thought.created_at.desc()).all()
-    session.close()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Thought).order_by(Thought.created_at.desc())
+        )
+        thoughts = result.scalars().all()
     return thoughts
 
 @app.get("/api/plans")
 async def get_all_plans():
     """Get all plans"""
-    session = SessionLocal()
-    plans = session.query(Plan).order_by(Plan.created_at.desc()).all()
-    session.close()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Plan).order_by(Plan.created_at.desc())
+        )
+        plans = result.scalars().all()
     return plans
 
 @app.get("/api/changes")
 async def get_all_changes():
     """Get all changes with plan titles"""
-    session = SessionLocal()
-    changes = session.query(
-        Change,
-        Plan.title.label('plan_title')
-    ).outerjoin(
-        Plan, Change.plan_id == Plan.id
-    ).order_by(Change.created_at.desc()).all()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Change, Plan.title)
+            .outerjoin(Plan, Change.plan_id == Plan.id)
+            .order_by(Change.created_at.desc())
+        )
+        changes = result.all()
     
-    result = []
-    for change, plan_title in changes:
-        change_dict = change.__dict__
-        change_dict['plan_title'] = plan_title
-        result.append(change_dict)
+        result = []
+        for change, plan_title in changes:
+            change_dict = change.__dict__
+            change_dict['plan_title'] = plan_title
+            result.append(change_dict)
     
-    session.close()
-    return result
-
-
+        return result
 
 # Resources
 @mcp.resource("tpc://thoughts/active")
 async def get_active_thoughts() -> List[Dict[str, Any]]:
     """Returns all active thoughts with their associated plans."""
-    session = SessionLocal()
-    try:
-        thoughts = session.query(Thought)\
-            .filter(Thought.status == "active")\
-            .order_by(Thought.created_at.desc())\
-            .all()
-            
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Thought)
+            .where(Thought.status == "active")
+            .order_by(Thought.created_at.desc())
+        )
+        thoughts = result.scalars().all()
+        
         result = []
         for thought in thoughts:
             thought_dict = {
@@ -400,10 +508,12 @@ async def get_active_thoughts() -> List[Dict[str, Any]]:
             }
             
             # Get associated plans
-            plans = session.query(Plan)\
-                .join(ThoughtPlanAssociation, Plan.id == ThoughtPlanAssociation.plan_id)\
-                .filter(ThoughtPlanAssociation.thought_id == thought.id)\
-                .all()
+            plans_result = await session.execute(
+                select(Plan)
+                .join(ThoughtPlanAssociation, Plan.id == ThoughtPlanAssociation.plan_id)
+                .where(ThoughtPlanAssociation.thought_id == thought.id)
+            )
+            plans = plans_result.scalars().all()
                 
             for plan in plans:
                 thought_dict["plans"].append({
@@ -414,18 +524,17 @@ async def get_active_thoughts() -> List[Dict[str, Any]]:
             result.append(thought_dict)
             
         return result
-    finally:
-        session.close()
 
 @mcp.resource("tpc://plans/active")
 async def get_active_plans() -> List[Dict[str, Any]]:
     """Returns all active plans with their associated thoughts."""
-    session = SessionLocal()
-    try:
-        plans = session.query(Plan)\
-            .filter(Plan.status == "active")\
-            .order_by(Plan.created_at.desc())\
-            .all()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Plan)
+            .where(Plan.status == "active")
+            .order_by(Plan.created_at.desc())
+        )
+        plans = result.scalars().all()
             
         result = []
         for plan in plans:
@@ -438,10 +547,12 @@ async def get_active_plans() -> List[Dict[str, Any]]:
             }
             
             # Get associated thoughts
-            thoughts = session.query(Thought)\
-                .join(ThoughtPlanAssociation, Thought.id == ThoughtPlanAssociation.thought_id)\
-                .filter(ThoughtPlanAssociation.plan_id == plan.id)\
-                .all()
+            thoughts_result = await session.execute(
+                select(Thought)
+                .join(ThoughtPlanAssociation, Thought.id == ThoughtPlanAssociation.thought_id)
+                .where(ThoughtPlanAssociation.plan_id == plan.id)
+            )
+            thoughts = thoughts_result.scalars().all()
                 
             for thought in thoughts:
                 plan_dict["thoughts"].append({
@@ -452,19 +563,18 @@ async def get_active_plans() -> List[Dict[str, Any]]:
             result.append(plan_dict)
             
         return result
-    finally:
-        session.close()
 
 @mcp.resource("tpc://changes/recent?limit={limit}")
 async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
     """Returns recent changes with plan details."""
-    session = SessionLocal()
-    try:
-        changes = session.query(Change, Plan.title)\
-            .join(Plan, Change.plan_id == Plan.id)\
-            .order_by(Change.created_at.desc())\
-            .limit(limit)\
-            .all()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Change, Plan.title)
+            .join(Plan, Change.plan_id == Plan.id)
+            .order_by(Change.created_at.desc())
+            .limit(limit)
+        )
+        changes = result.all()
             
         return [{
             "id": change.id,
@@ -474,8 +584,6 @@ async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
             "plan_id": change.plan_id,
             "plan_title": title
         } for change, title in changes]
-    finally:
-        session.close()
 
 # Agent Tools - Single Operations
 # Bulk Operations
@@ -490,43 +598,44 @@ async def add_thoughts_bulk(
     )
 ) -> List[str]:
     """Add multiple thoughts in a single transaction."""
-    session = SessionLocal()
-    try:
-        results = []
-        
-        for thought_data in thoughts:
-            thought_id = str(uuid.uuid4())
-            thought = Thought(
-                id=thought_id,
-                content=thought_data["content"],
-                agent_signature=thought_data["agent_signature"],
-                created_at=datetime.utcnow(),
-                status="active"
-            )
-            session.add(thought)
+    async with AsyncSessionLocal() as session:
+        try:
+            results = []
             
-            if "plan_ids" in thought_data:
-                for plan_id in thought_data["plan_ids"]:
-                    plan = session.query(Plan).filter(Plan.id == plan_id).first()
-                    if plan:
-                        association = ThoughtPlanAssociation(
-                            thought_id=thought_id,
-                            plan_id=plan_id,
-                            created_at=datetime.utcnow(),
-                            agent_signature=thought_data["agent_signature"]
+            for thought_data in thoughts:
+                thought_id = str(uuid.uuid4())
+                thought = Thought(
+                    id=thought_id,
+                    content=thought_data["content"],
+                    agent_signature=thought_data["agent_signature"],
+                    created_at=datetime.utcnow(),
+                    status="active"
+                )
+                session.add(thought)
+                
+                if "plan_ids" in thought_data:
+                    for plan_id in thought_data["plan_ids"]:
+                        result = await session.execute(
+                            select(Plan).where(Plan.id == plan_id)
                         )
-                        session.add(association)
+                        plan = result.scalars().first()
+                        if plan:
+                            association = ThoughtPlanAssociation(
+                                thought_id=thought_id,
+                                plan_id=plan_id,
+                                created_at=datetime.utcnow(),
+                                agent_signature=thought_data["agent_signature"]
+                            )
+                            session.add(association)
+                
+                results.append(f"Added thought: {thought_id}")
             
-            results.append(f"Added thought: {thought_id}")
-        
-        session.commit()
-        return results
-        
-    except Exception as e:
-        session.rollback()
-        return [f"Error in bulk operation: {str(e)}"]
-    finally:
-        session.close()
+            await session.commit()
+            return results
+            
+        except Exception as e:
+            await session.rollback()
+            return [f"Error in bulk operation: {str(e)}"]
 
 @mcp.tool(
     name="add_thought",
@@ -544,47 +653,42 @@ async def add_thought(
     
     This tool records a new insight, idea, or consideration. Thoughts can optionally be linked to existing plans.
     """
-    session = SessionLocal()
-    try:
-        
-        # Create new thought
-        thought_id = str(uuid.uuid4())
-        thought = Thought(
-            id=thought_id,
-            content=content,
-            agent_signature=agent_signature,
-            created_at=datetime.utcnow(),
-            status="active"
-        )
-        session.add(thought)
-        
-        # Associate with plans if provided
-        if plan_ids:
-            for plan_id in plan_ids:
-                plan = session.query(Plan).filter(Plan.id == plan_id).first()
-                if plan:
-                    association = ThoughtPlanAssociation(
-                        thought_id=thought_id,
-                        plan_id=plan_id,
-                        created_at=datetime.utcnow(),
-                        agent_signature=agent_signature
+    async with AsyncSessionLocal() as session:
+        try:
+            thought_id = str(uuid.uuid4())
+            thought = Thought(
+                id=thought_id,
+                content=content,
+                agent_signature=agent_signature,
+                created_at=datetime.utcnow(),
+                status="active"
+            )
+            session.add(thought)
+            
+            # Associate with plans if provided
+            if plan_ids:
+                for plan_id in plan_ids:
+                    result = await session.execute(
+                        select(Plan).where(Plan.id == plan_id)
                     )
-                    session.add(association)
-                else:
-                    session.close()
-                    return f"Error: Plan with ID {plan_id} not found"
+                    plan = result.scalars().first()
+                    if plan:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=agent_signature
+                        )
+                        session.add(association)
+                    else:
+                        return f"Error: Plan with ID {plan_id} not found"
+            
+            await session.commit()
+            return f"Successfully added thought: {thought_id}"
         
-        session.commit()
-        session.close()
-        
-        # Print database state
-         
-        
-        return f"Successfully added thought: {thought_id}"
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error adding thought: {str(e)}"
+        except Exception as e:
+            await session.rollback()
+            return f"Error adding thought: {str(e)}"
 
 @mcp.tool(
     name="create_plans_bulk",
@@ -597,45 +701,46 @@ async def create_plans_bulk(
     )
 ) -> List[str]:
     """Create multiple plans in a single transaction."""
-    session = SessionLocal()
-    try:
-        results = []
-        
-        for plan_data in plans:
-            plan_id = str(uuid.uuid4())
-            plan = Plan(
-                id=plan_id,
-                title=plan_data["title"],
-                description=plan_data["description"],
-                agent_signature=plan_data["agent_signature"],
-                created_at=datetime.utcnow(),
-                version="1",
-                status="active"
-            )
-            session.add(plan)
+    async with AsyncSessionLocal() as session:
+        try:
+            results = []
             
-            if "thought_ids" in plan_data:
-                for thought_id in plan_data["thought_ids"]:
-                    thought = session.query(Thought).filter(Thought.id == thought_id).first()
-                    if thought:
-                        association = ThoughtPlanAssociation(
-                            thought_id=thought_id,
-                            plan_id=plan_id,
-                            created_at=datetime.utcnow(),
-                            agent_signature=plan_data["agent_signature"]
+            for plan_data in plans:
+                plan_id = str(uuid.uuid4())
+                plan = Plan(
+                    id=plan_id,
+                    title=plan_data["title"],
+                    description=plan_data["description"],
+                    agent_signature=plan_data["agent_signature"],
+                    created_at=datetime.utcnow(),
+                    version="1",
+                    status="active"
+                )
+                session.add(plan)
+                
+                if "thought_ids" in plan_data:
+                    for thought_id in plan_data["thought_ids"]:
+                        result = await session.execute(
+                            select(Thought).where(Thought.id == thought_id)
                         )
-                        session.add(association)
+                        thought = result.scalars().first()
+                        if thought:
+                            association = ThoughtPlanAssociation(
+                                thought_id=thought_id,
+                                plan_id=plan_id,
+                                created_at=datetime.utcnow(),
+                                agent_signature=plan_data["agent_signature"]
+                            )
+                            session.add(association)
+                
+                results.append(f"Created plan: {plan_id}")
             
-            results.append(f"Created plan: {plan_id}")
-        
-        session.commit()
-        return results
-        
-    except Exception as e:
-        session.rollback()
-        return [f"Error in bulk operation: {str(e)}"]
-    finally:
-        session.close()
+            await session.commit()
+            return results
+            
+        except Exception as e:
+            await session.rollback()
+            return [f"Error in bulk operation: {str(e)}"]
 
 @mcp.tool(
     name="create_plan",
@@ -654,49 +759,45 @@ async def create_plan(
     
     This tool records a new plan or intended approach. Plans can optionally be linked to existing thoughts.
     """
-    session = SessionLocal()
-    try:
-        
-        # Create new plan
-        plan_id = str(uuid.uuid4())
-        plan = Plan(
-            id=plan_id,
-            title=title,
-            description=description,
-            agent_signature=agent_signature,
-            created_at=datetime.utcnow(),
-            version="1",
-            status="active"
-        )
-        session.add(plan)
-        
-        # Associate with thoughts if provided
-        if thought_ids:
-            for thought_id in thought_ids:
-                thought = session.query(Thought).filter(Thought.id == thought_id).first()
-                if thought:
-                    association = ThoughtPlanAssociation(
-                        thought_id=thought_id,
-                        plan_id=plan_id,
-                        created_at=datetime.utcnow(),
-                        agent_signature=agent_signature
+    async with AsyncSessionLocal() as session:
+        try:
+            # Create new plan
+            plan_id = str(uuid.uuid4())
+            plan = Plan(
+                id=plan_id,
+                title=title,
+                description=description,
+                agent_signature=agent_signature,
+                created_at=datetime.utcnow(),
+                version="1",
+                status="active"
+            )
+            session.add(plan)
+            
+            # Associate with thoughts if provided
+            if thought_ids:
+                for thought_id in thought_ids:
+                    result = await session.execute(
+                        select(Thought).where(Thought.id == thought_id)
                     )
-                    session.add(association)
-                else:
-                    session.close()
-                    return f"Error: Thought with ID {thought_id} not found"
-        
-        session.commit()
-        session.close()
-        
-        # Print database state
-         
-        
-        return f"Successfully created plan: {plan_id}"
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error creating plan: {str(e)}"
+                    thought = result.scalars().first()
+                    if thought:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=agent_signature
+                        )
+                        session.add(association)
+                    else:
+                        return f"Error: Thought with ID {thought_id} not found"
+            
+            await session.commit()
+            return f"Successfully created plan: {plan_id}"
+            
+        except Exception as e:
+            await session.rollback()
+            return f"Error creating plan: {str(e)}"
 
 @mcp.tool(
     name="log_changes_bulk",
@@ -709,36 +810,37 @@ async def log_changes_bulk(
     )
 ) -> List[str]:
     """Log multiple changes in a single transaction."""
-    try:
-        session = SessionLocal()
-        results = []
-        
-        for change_data in changes:
-            # Verify plan exists
-            plan = session.query(Plan).filter(Plan.id == change_data["plan_id"]).first()
-            if not plan:
-                results.append(f"Error: Plan with ID {change_data['plan_id']} not found")
-                continue
-                
-            change_id = str(uuid.uuid4())
-            change = Change(
-                id=change_id,
-                description=change_data["description"],
-                agent_signature=change_data["agent_signature"],
-                created_at=datetime.utcnow(),
-                plan_id=change_data["plan_id"]
-            )
-            session.add(change)
-            results.append(f"Logged change: {change_id}")
-        
-        session.commit()
-        return results
-        
-    except Exception as e:
-        session.rollback()
-        return [f"Error in bulk operation: {str(e)}"]
-    finally:
-        session.close()
+    async with AsyncSessionLocal() as session:
+        try:
+            results = []
+            
+            for change_data in changes:
+                # Verify plan exists
+                result = await session.execute(
+                    select(Plan).where(Plan.id == change_data["plan_id"])
+                )
+                plan = result.scalars().first()
+                if not plan:
+                    results.append(f"Error: Plan with ID {change_data['plan_id']} not found")
+                    continue
+                    
+                change_id = str(uuid.uuid4())
+                change = Change(
+                    id=change_id,
+                    description=change_data["description"],
+                    agent_signature=change_data["agent_signature"],
+                    created_at=datetime.utcnow(),
+                    plan_id=change_data["plan_id"]
+                )
+                session.add(change)
+                results.append(f"Logged change: {change_id}")
+            
+            await session.commit()
+            return results
+            
+        except Exception as e:
+            await session.rollback()
+            return [f"Error in bulk operation: {str(e)}"]
 
 @mcp.tool(
     name="log_change",
@@ -753,37 +855,33 @@ async def log_change(
     
     This tool records a concrete modification to a project. Every change must reference an existing plan.
     """
-    try:
-        session = SessionLocal()
-        
-        # Verify plan exists
-        plan = session.query(Plan).filter(Plan.id == plan_id).first()
-        if not plan:
-            session.close()
-            return f"Error: Plan with ID {plan_id} not found"
-        
-        # Create new change
-        change_id = str(uuid.uuid4())
-        change = Change(
-            id=change_id,
-            description=description,
-            agent_signature=agent_signature,
-            created_at=datetime.utcnow(),
-            plan_id=plan_id
-        )
-        session.add(change)
-        
-        session.commit()
-        session.close()
-        
-        # Print database state
-         
-        
-        return f"Successfully logged change: {change_id}"
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error logging change: {str(e)}"
+    async with AsyncSessionLocal() as session:
+        try:
+            # Verify plan exists
+            result = await session.execute(
+                select(Plan).where(Plan.id == plan_id)
+            )
+            plan = result.scalars().first()
+            if not plan:
+                return f"Error: Plan with ID {plan_id} not found"
+            
+            # Create new change
+            change_id = str(uuid.uuid4())
+            change = Change(
+                id=change_id,
+                description=description,
+                agent_signature=agent_signature,
+                created_at=datetime.utcnow(),
+                plan_id=plan_id
+            )
+            session.add(change)
+            
+            await session.commit()
+            return f"Successfully logged change: {change_id}"
+            
+        except Exception as e:
+            await session.rollback()
+            return f"Error logging change: {str(e)}"
 
 @mcp.tool()
 async def get_recent_thoughts(ctx: Context, limit: int = 5) -> str:
@@ -795,33 +893,32 @@ async def get_recent_thoughts(ctx: Context, limit: int = 5) -> str:
         ctx: The MCP server provided context
         limit: Maximum number of thoughts to return (default: 5)
     """
-    try:
-        session = ctx.request_context.lifespan_context.db_session()
-        
-        thoughts = session.query(Thought)\
-            .order_by(Thought.created_at.desc())\
-            .limit(limit)\
-            .all()
-        
-        result = []
-        for thought in thoughts:
-            result.append({
-                "id": thought.id,
-                "content": thought.content,
-                "agent_signature": thought.agent_signature,
-                "created_at": thought.created_at.isoformat(),
-                "status": thought.status
-            })
-        
-        session.close()
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error retrieving thoughts: {str(e)}"
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Thought)
+                .order_by(Thought.created_at.desc())
+                .limit(limit)
+            )
+            thoughts = result.scalars().all()
+            
+            result = []
+            for thought in thoughts:
+                result.append({
+                    "id": thought.id,
+                    "content": thought.content,
+                    "agent_signature": thought.agent_signature,
+                    "created_at": thought.created_at.isoformat(),
+                    "status": thought.status
+                })
+            
+            return json.dumps(result, indent=2)
+            
+        except Exception as e:
+            return f"Error retrieving thoughts: {str(e)}"
 
 @mcp.tool()
-async def get_active_plans(ctx: Context) -> str:
+async def get_active_plans_tool(ctx: Context) -> str:
     """Get all active plans.
     
     This tool retrieves all plans with 'active' status from the database.
@@ -829,176 +926,223 @@ async def get_active_plans(ctx: Context) -> str:
     Args:
         ctx: The MCP server provided context
     """
-    try:
-        session = ctx.request_context.lifespan_context.db_session()
-        
-        plans = session.query(Plan)\
-            .filter(Plan.status == "active")\
-            .all()
-        
-        result = []
-        for plan in plans:
-            result.append({
-                "id": plan.id,
-                "title": plan.title,
-                "description": plan.description,
-                "agent_signature": plan.agent_signature,
-                "created_at": plan.created_at.isoformat(),
-                "version": plan.version,
-                "status": plan.status
-            })
-        
-        session.close()
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error retrieving plans: {str(e)}"
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Plan)
+                .where(Plan.status == "active")
+            )
+            plans = result.scalars().all()
+            
+            result = []
+            for plan in plans:
+                result.append({
+                    "id": plan.id,
+                    "title": plan.title,
+                    "description": plan.description,
+                    "agent_signature": plan.agent_signature,
+                    "created_at": plan.created_at.isoformat(),
+                    "version": plan.version,
+                    "id": plan.id,
+                    "title": plan.title,
+                    "description": plan.description,
+                    "agent_signature": plan.agent_signature,
+                    "created_at": plan.created_at.isoformat(),
+                    "version": plan.version,
+                    "status": plan.status
+               })
+           
+            return json.dumps(result, indent=2)
+           
+        except Exception as e:
+           return f"Error retrieving plans: {str(e)}"
 
 @mcp.tool()
 async def get_changes_by_plan(ctx: Context, plan_id: str) -> str:
-    """Get all changes associated with a specific plan.
-    
-    This tool retrieves all changes that reference a particular plan.
-    
-    Args:
-        ctx: The MCP server provided context
-        plan_id: ID of the plan to get changes for
-    """
-    try:
-        session = ctx.request_context.lifespan_context.db_session()
-        
-        # Verify plan exists
-        plan = session.query(Plan).filter(Plan.id == plan_id).first()
-        if not plan:
-            session.close()
-            return f"Error: Plan with ID {plan_id} not found"
-        
-        changes = session.query(Change)\
-            .filter(Change.plan_id == plan_id)\
-            .order_by(Change.created_at.desc())\
-            .all()
-        
-        result = []
-        for change in changes:
-            result.append({
-                "id": change.id,
-                "description": change.description,
-                "agent_signature": change.agent_signature,
-                "created_at": change.created_at.isoformat(),
-                "plan_id": change.plan_id
-            })
-        
-        session.close()
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error retrieving changes: {str(e)}"
+   """Get all changes associated with a specific plan.
+   
+   This tool retrieves all changes that reference a particular plan.
+   
+   Args:
+       ctx: The MCP server provided context
+       plan_id: ID of the plan to get changes for
+   """
+   async with AsyncSessionLocal() as session:
+       try:
+           # Verify plan exists
+           result = await session.execute(
+               select(Plan).where(Plan.id == plan_id)
+           )
+           plan = result.scalars().first()
+           if not plan:
+               return f"Error: Plan with ID {plan_id} not found"
+           
+           result = await session.execute(
+               select(Change)
+               .where(Change.plan_id == plan_id)
+               .order_by(Change.created_at.desc())
+           )
+           changes = result.scalars().all()
+           
+           result = []
+           for change in changes:
+               result.append({
+                   "id": change.id,
+                   "description": change.description,
+                   "agent_signature": change.agent_signature,
+                   "created_at": change.created_at.isoformat(),
+                   "plan_id": change.plan_id
+               })
+           
+           return json.dumps(result, indent=2)
+           
+       except Exception as e:
+           return f"Error retrieving changes: {str(e)}"
 
+                             
 @mcp.tool()
 async def get_thought_details(ctx: Context, thought_id: str) -> str:
-    """Get detailed information about a specific thought.
-    
-    This tool retrieves a single thought with its associated plans.
-    
-    Args:
-        ctx: The MCP server provided context
-        thought_id: ID of the thought to retrieve
-    """
-    try:
-        session = ctx.request_context.lifespan_context.db_session()
-        
-        thought = session.query(Thought).filter(Thought.id == thought_id).first()
-        if not thought:
-            session.close()
-            return f"Error: Thought with ID {thought_id} not found"
-        
-        related_plans = []
-        for plan in thought.plans:
-            related_plans.append({
-                "id": plan.id,
-                "title": plan.title
-            })
-        
-        result = {
-            "id": thought.id,
-            "content": thought.content,
-            "agent_signature": thought.agent_signature,
-            "created_at": thought.created_at.isoformat(),
-            "status": thought.status,
-            "related_plans": related_plans
-        }
-        
-        session.close()
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error retrieving thought details: {str(e)}"
+  """Get detailed information about a specific thought.
+  
+  This tool retrieves a single thought with its associated plans.
+  
+  Args:
+      ctx: The MCP server provided context
+      thought_id: ID of the thought to retrieve
+  """
+  async with AsyncSessionLocal() as session:
+      try:
+          result = await session.execute(
+              select(Thought).where(Thought.id == thought_id)
+          )
+          thought = result.scalars().first()
+          if not thought:
+              return f"Error: Thought with ID {thought_id} not found"
+          
+          # Get associated plans
+          plans_result = await session.execute(
+              select(Plan)
+              .join(ThoughtPlanAssociation, Plan.id == ThoughtPlanAssociation.plan_id)
+              .where(ThoughtPlanAssociation.thought_id == thought_id)
+          )
+          plans = plans_result.scalars().all()
+          
+          related_plans = []
+          for plan in plans:
+              related_plans.append({
+                  "id": plan.id,
+                  "title": plan.title
+              })
+          
+          result = {
+              "id": thought.id,
+              "content": thought.content,
+              "agent_signature": thought.agent_signature,
+              "created_at": thought.created_at.isoformat(),
+              "status": thought.status,
+              "related_plans": related_plans
+          }
+          
+          return json.dumps(result, indent=2)
+          
+      except Exception as e:
+          return f"Error retrieving thought details: {str(e)}"
 
 @mcp.tool()
 async def get_plan_details(ctx: Context, plan_id: str) -> str:
-    """Get detailed information about a specific plan.
-    
-    This tool retrieves a single plan with its associated thoughts and changes.
-    
-    Args:
-        ctx: The MCP server provided context
-        plan_id: ID of the plan to retrieve
-    """
-    try:
-        session = ctx.request_context.lifespan_context.db_session()
-        
-        plan = session.query(Plan).filter(Plan.id == plan_id).first()
-        if not plan:
-            session.close()
-            return f"Error: Plan with ID {plan_id} not found"
-        
-        related_thoughts = []
-        for thought in plan.thoughts:
-            related_thoughts.append({
-                "id": thought.id,
-                "content": thought.content[:50] + "..." if len(thought.content) > 50 else thought.content
-            })
-        
-        related_changes = []
-        for change in plan.changes:
-            related_changes.append({
-                "id": change.id,
-                "description": change.description[:50] + "..." if len(change.description) > 50 else change.description,
-                "created_at": change.created_at.isoformat()
-            })
-        
-        result = {
-            "id": plan.id,
-            "title": plan.title,
-            "description": plan.description,
-            "agent_signature": plan.agent_signature,
-            "created_at": plan.created_at.isoformat(),
-            "version": plan.version,
-            "status": plan.status,
-            "related_thoughts": related_thoughts,
-            "related_changes": related_changes
-        }
-        
-        session.close()
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        if session:
-            session.close()
-        return f"Error retrieving plan details: {str(e)}"
+  """Get detailed information about a specific plan.
+  
+  This tool retrieves a single plan with its associated thoughts and changes.
+  
+  Args:
+      ctx: The MCP server provided context
+      plan_id: ID of the plan to retrieve
+  """
+  async with AsyncSessionLocal() as session:
+      try:
+          result = await session.execute(
+              select(Plan).where(Plan.id == plan_id)
+          )
+          plan = result.scalars().first()
+          if not plan:
+              return f"Error: Plan with ID {plan_id} not found"
+          
+          # Get associated thoughts
+          thoughts_result = await session.execute(
+              select(Thought)
+              .join(ThoughtPlanAssociation, Thought.id == ThoughtPlanAssociation.thought_id)
+              .where(ThoughtPlanAssociation.plan_id == plan_id)
+          )
+          thoughts = thoughts_result.scalars().all()
+          
+          related_thoughts = []
+          for thought in thoughts:
+              related_thoughts.append({
+                  "id": thought.id,
+                  "content": thought.content[:50] + "..." if len(thought.content) > 50 else thought.content
+              })
+          
+          # Get associated changes
+          changes_result = await session.execute(
+              select(Change).where(Change.plan_id == plan_id)
+          )
+          changes = changes_result.scalars().all()
+          
+          related_changes = []
+          for change in changes:
+              related_changes.append({
+                  "id": change.id,
+                  "description": change.description[:50] + "..." if len(change.description) > 50 else change.description,
+                  "created_at": change.created_at.isoformat()
+              })
+          
+          result = {
+              "id": plan.id,
+              "title": plan.title,
+              "description": plan.description,
+              "agent_signature": plan.agent_signature,
+              "created_at": plan.created_at.isoformat(),
+              "version": plan.version,
+              "status": plan.status,
+              "related_thoughts": related_thoughts,
+              "related_changes": related_changes
+          }
+          
+          return json.dumps(result, indent=2)
+          
+      except Exception as e:
+          return f"Error retrieving plan details: {str(e)}"
 
 
+@mcp.tool(
+   name="log_thought",
+   description="Log a thought to the database"
+)
+async def log_thought(thought: str) -> dict:
+   """Log a thought to the database"""
+   async with AsyncSessionLocal() as session:
+       new_thought = Thought(
+           id=str(uuid.uuid4()),
+           content=thought,
+           agent_signature="system",
+           created_at=datetime.utcnow()
+       )
+       session.add(new_thought)
+       await session.commit()
+   return {"status": "logged", "id": new_thought.id}
 
-async def main():
-    transport = os.getenv("TRANSPORT", "sse")
-    if transport == 'sse':
-        # Run the MCP server with sse transport
-        await mcp.run_sse_async()
-    else:
-        # Run the MCP server with stdio transport
-        await mcp.run_stdio_async()
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Initialize server configuration
+
+    # Configure and run the MCP server with selected transport
+    transport = os.getenv("TRANSPORT", "sse")
+    
+    mcp.run(
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8666")),
+        log_level="info",
+        transport=transport,
+        reload=True
+    )
