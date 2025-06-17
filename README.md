@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/suttonwilliamd-tpc-server-badge.png)](https://mseep.ai/app/suttonwilliamd-tpc-server)
+
 # ✨ TPC Server ✨
 
 **Track your agent's (or project's) Thoughts 🧠, Plans 📝, and Changes ✅!**
