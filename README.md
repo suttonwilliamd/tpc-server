@@ -23,11 +23,14 @@ This server facilitates recording these items and their relationships (Thoughts 
 
 * **🧠 Track Thoughts, 📝 Plans, and ✅ Changes:** Dedicated models and storage for each concept.
 * **🔗 Interconnected Data:** Link thoughts to plans (many-to-many) and changes back to plans (many-to-one).
-* **🌐 Web Interface:** Simple HTML views for Browse recent activity, thoughts, plans, and changes.
-* **🔌 JSON API:** Endpoints for programmatic data retrieval (recent items, all thoughts/plans/changes).
+* **🌐 Enhanced Web Interface:** Modern HTML views with real-time updates, search functionality, and improved UX.
+* **🔌 Enhanced JSON API:** Endpoints for programmatic data retrieval and CRUD operations with authentication.
 * **🤖 Agent Tools (MCP):** Exposes functions via `mcp-server` for AI agents to interact with the TPC store (`add_thought`, `create_plan`, `log_change`, `get_...`).
+* **🔐 Authentication:** Signature-based authentication for AI agents with configurable secrets.
+* **🔄 Real-time Updates:** Live polling system for instant notification of new thoughts, plans, and changes.
+* **🔍 Advanced Search:** Cross-entity search functionality across thoughts, plans, and changes.
 * **💾 Database Backend:** Uses SQLAlchemy (defaults to SQLite, easily configurable via URL).
-* **⚙️ Configurable:** Set DB URL, host, port, and agent communication transport (SSE/stdio) via `.env`.
+* **⚙️ Configurable:** Set DB URL, host, port, agent communication transport, and authentication secrets via `.env`.
 * **🪄 Auto Table Creation:** Database tables are created automatically on first run if they don't exist.
 
 ---
@@ -69,15 +72,22 @@ This server facilitates recording these items and their relationships (Thoughts 
 
     # --- Database ---
     # Default: SQLite in project root. Use postgresql://user:pass@host:port/db for PostgreSQL, etc.
-    DATABASE_URL="sqlite:///./tpc_server.db"
+    DATABASE_URL="sqlite+aiosqlite:///./tpc_server.db"
 
     # --- Server Network ---
     HOST="0.0.0.0"     # Listen on all network interfaces
-    PORT="8050"        # Port for FastAPI and MCP SSE
+    PORT="8050"        # Port for FastAPI web interface
 
     # --- Agent Communication ---
     # 'sse' (Server-Sent Events over HTTP) or 'stdio' (Standard Input/Output)
     TRANSPORT="sse"
+
+    # --- Authentication ---
+    # Agent secrets for signature-based authentication
+    # Format: AGENT_SECRET_AGENTNAME=your-secret-key-here
+    AGENT_SECRET_DEFAULT=my-default-secret-key
+    AGENT_SECRET_ALPHA=alpha-agent-secret-key
+    AGENT_SECRET_BETA=beta-agent-secret-key
     ```
 
 ---
@@ -105,14 +115,29 @@ Access the simple web UI through your browser (default: `http://localhost:8050`)
   * `/plans`: List all recorded plans.
   * `/changes`: List all recorded changes (with associated plan titles).
 
-### 💻 JSON API
+### 💻 Enhanced JSON API
 
-Fetch data programmatically:
+Fetch data programmatically with new CRUD operations:
 
+**Read Operations (No Auth Required):**
   * `GET /api/recent-activity`: Combined list of the 10 most recent thoughts, plans, and changes.
   * `GET /api/thoughts`: List of all thoughts.
   * `GET /api/plans`: List of all plans.
   * `GET /api/changes`: List of all changes (including `plan_title`).
+  * `GET /api/updates`: Get recent updates for real-time polling (supports `since` parameter).
+  * `GET /api/search`: Search across thoughts, plans, and changes (`q` parameter required).
+
+**Write Operations (Authentication Required):**
+  * `POST /api/thoughts`: Create a new thought (requires signature authentication).
+  * `POST /api/plans`: Create a new plan (requires signature authentication).
+  * `POST /api/changes`: Create a new change (requires signature authentication).
+
+**Authentication:**
+Write operations require signature-based authentication. Include an `Authorization` header with format:
+```
+Authorization: Bearer agent_id:signature
+```
+Where `signature` is an HMAC-SHA256 signature of the request payload using the agent's secret key.
 
 ### 🤖 Agent Tools (via MCP)
 

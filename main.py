@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Query, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,7 +18,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime, Index
@@ -27,9 +26,11 @@ from sqlalchemy.orm import sessionmaker, relationship
 from typing import List, Optional, Dict, Any
 import asyncio
 import json
-import os
 import sys
 import uuid
+
+# Import authentication
+from auth import auth, authentication_middleware
 
 load_dotenv()
 
@@ -169,12 +170,13 @@ async def tpc_lifespan(app: FastAPI) -> AsyncIterator[TPCContext]:
     # Initialize database
     logger.info("Initializing database connection")
     async with engine.begin() as conn:
-        await create_db_tables()
+        await conn.run_sync(Base.metadata.create_all)
     
     # Create session factory
     async_session_factory = sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
+    
     
     yield TPCContext(db_session=async_session_factory)
     
@@ -217,8 +219,7 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Initialize FastMCP with the properly configured app
-# Remove duplicate app initialization and configure middleware directly
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -227,23 +228,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize FastMCP with proper ASGI configuration
-mcp = FastMCP(
-    "mcp-tpc",
-    description="MCP server for tracking thoughts, plans, and changes",
-    app=app,
-    host=os.getenv("HOST", "0.0.0.0"),
-    port=os.getenv("PORT", "8050"),
-    log_level="INFO",
-    enable_metrics=True,
-    enable_tracing=True,
-    request_timeout=30,
-    max_concurrent_requests=100
-)
-
-# Expose primary ASGI application
-application = app
-
+# Add authentication middleware
+app.middleware("http")(authentication_middleware)
 
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -263,16 +249,18 @@ templates = Jinja2Templates(directory=template_dir)
 templates.env.globals.update({
     'now': datetime.utcnow
 })
+logger.info(f"Template directory: {template_dir}")
+logger.info(f"Static directory: {static_dir}")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Web Interface Routes
 @app.get("/", response_class=HTMLResponse)
-async def read_root():
+async def read_root(request: Request):
     """Root endpoint serving the index page"""
-    return templates.TemplateResponse("index.html", {"request": {}})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/thoughts", response_class=HTMLResponse)
-async def read_thoughts():
+async def read_thoughts(request: Request):
     """Endpoint serving the thoughts page"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -281,11 +269,11 @@ async def read_thoughts():
         thoughts = result.scalars().all()
     return templates.TemplateResponse(
         "thoughts.html",
-        {"request": {}, "thoughts": thoughts}
+        {"request": request, "thoughts": thoughts}
     )
 
 @app.get("/plans", response_class=HTMLResponse)
-async def read_plans():
+async def read_plans(request: Request):
     """Endpoint serving the plans page"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -294,11 +282,11 @@ async def read_plans():
         plans = result.scalars().all()
     return templates.TemplateResponse(
         "plans.html",
-        {"request": {}, "plans": plans}
+        {"request": request, "plans": plans}
     )
 
 @app.get("/plans/{plan_id}", response_class=HTMLResponse)
-async def read_plan(plan_id: str):
+async def read_plan(plan_id: str, request: Request):
     """Endpoint serving a single plan's details"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -328,7 +316,7 @@ async def read_plan(plan_id: str):
     return templates.TemplateResponse(
         "plan_detail.html",
         {
-            "request": {},
+            "request": request,
             "plan": plan,
             "thoughts": thoughts,
             "changes": changes
@@ -336,7 +324,7 @@ async def read_plan(plan_id: str):
     )
 
 @app.get("/changes", response_class=HTMLResponse)
-async def read_changes():
+async def read_changes(request: Request):
     """Endpoint serving the changes page"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -358,7 +346,7 @@ async def read_changes():
     
     return templates.TemplateResponse(
         "changes.html",
-        {"request": {}, "changes": changes_data}
+        {"request": request, "changes": changes_data}
     )
 
 # API Endpoints (FastAPI routes)
@@ -382,7 +370,7 @@ async def health_check():
             detail={"status": "unavailable", "error": str(e)}
         )
 @app.get("/api/recent-activity")
-async def api_recent_activity(plan_id: Optional[str] = None):
+async def api_recent_activity():
     """Combines recent thoughts, plans and changes"""
     async with AsyncSessionLocal() as session:
         # Get recent thoughts
@@ -402,15 +390,6 @@ async def api_recent_activity(plan_id: Optional[str] = None):
             select(Change).order_by(Change.created_at.desc()).limit(5)
         )
         changes = changes_result.scalars().all()
-    
-        # If plan_id is provided, filter changes by plan
-        if plan_id:
-            changes_result = await session.execute(
-                select(Change)
-                .where(Change.plan_id == plan_id)
-                .order_by(Change.created_at.desc())
-            )
-            changes = changes_result.scalars().all()
     
     # Format results
     result = []
@@ -485,9 +464,235 @@ async def get_all_changes():
     
         return result
 
+# New API endpoints for enhanced functionality
+@app.get("/api/updates")
+async def get_recent_updates(since: Optional[datetime] = None):
+    """Get recent updates for real-time polling"""
+    async with AsyncSessionLocal() as session:
+        result_data = {}
+        
+        # Get recent thoughts
+        thoughts_query = select(Thought).order_by(Thought.created_at.desc())
+        if since:
+            thoughts_query = thoughts_query.where(Thought.created_at > since)
+        thoughts_result = await session.execute(thoughts_query.limit(10))
+        thoughts = thoughts_result.scalars().all()
+        result_data["thoughts"] = [{
+            "id": t.id,
+            "content": t.content,
+            "created_at": t.created_at,
+            "agent_signature": t.agent_signature
+        } for t in thoughts]
+        
+        # Get recent plans
+        plans_query = select(Plan).order_by(Plan.created_at.desc())
+        if since:
+            plans_query = plans_query.where(Plan.created_at > since)
+        plans_result = await session.execute(plans_query.limit(10))
+        plans = plans_result.scalars().all()
+        result_data["plans"] = [{
+            "id": p.id,
+            "title": p.title,
+            "created_at": p.created_at,
+            "agent_signature": p.agent_signature
+        } for p in plans]
+        
+        # Get recent changes
+        changes_query = select(Change).order_by(Change.created_at.desc())
+        if since:
+            changes_query = changes_query.where(Change.created_at > since)
+        changes_result = await session.execute(changes_query.limit(10))
+        changes = changes_result.scalars().all()
+        result_data["changes"] = [{
+            "id": c.id,
+            "description": c.description,
+            "created_at": c.created_at,
+            "agent_signature": c.agent_signature,
+            "plan_id": c.plan_id
+        } for c in changes]
+        
+        return result_data
+
+@app.get("/api/search")
+async def search_entities(q: str = Query(..., min_length=2)):
+    """Search across thoughts, plans, and changes"""
+    async with AsyncSessionLocal() as session:
+        result_data = {}
+        
+        # Search thoughts
+        thoughts_result = await session.execute(
+            select(Thought).where(Thought.content.ilike(f"%{q}%"))
+            .order_by(Thought.created_at.desc()).limit(5)
+        )
+        thoughts = thoughts_result.scalars().all()
+        result_data["thoughts"] = [{
+            "id": t.id,
+            "content": t.content,
+            "created_at": t.created_at,
+            "agent_signature": t.agent_signature
+        } for t in thoughts]
+        
+        # Search plans
+        plans_result = await session.execute(
+            select(Plan).where(Plan.title.ilike(f"%{q}%") | Plan.description.ilike(f"%{q}%"))
+            .order_by(Plan.created_at.desc()).limit(5)
+        )
+        plans = plans_result.scalars().all()
+        result_data["plans"] = [{
+            "id": p.id,
+            "title": p.title,
+            "description": p.description,
+            "created_at": p.created_at,
+            "agent_signature": p.agent_signature
+        } for p in plans]
+        
+        # Search changes
+        changes_result = await session.execute(
+            select(Change).where(Change.description.ilike(f"%{q}%"))
+            .order_by(Change.created_at.desc()).limit(5)
+        )
+        changes = changes_result.scalars().all()
+        result_data["changes"] = [{
+            "id": c.id,
+            "description": c.description,
+            "created_at": c.created_at,
+            "agent_signature": c.agent_signature,
+            "plan_id": c.plan_id
+        } for c in changes]
+        
+        return result_data
+
+# Enhanced CRUD operations with authentication
+@app.post("/api/thoughts")
+async def create_thought(thought_data: ThoughtCreate, agent_id: str = Depends(auth)):
+    """Create a new thought with authentication"""
+    async with AsyncSessionLocal() as session:
+        try:
+            thought_id = str(uuid.uuid4())
+            thought = Thought(
+                id=thought_id,
+                content=thought_data.content,
+                agent_signature=agent_id,
+                created_at=datetime.utcnow(),
+                status="active"
+            )
+            session.add(thought)
+            
+            # Associate with plans if provided
+            if thought_data.plan_ids:
+                for plan_id in thought_data.plan_ids:
+                    result = await session.execute(
+                        select(Plan).where(Plan.id == plan_id)
+                    )
+                    plan = result.scalars().first()
+                    if plan:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=agent_id
+                        )
+                        session.add(association)
+            
+            await session.commit()
+            return {"id": thought_id, "message": "Thought created successfully"}
+        
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error creating thought: {str(e)}")
+
+@app.post("/api/plans")
+async def create_plan(plan_data: PlanCreate, agent_id: str = Depends(auth)):
+    """Create a new plan with authentication"""
+    async with AsyncSessionLocal() as session:
+        try:
+            plan_id = str(uuid.uuid4())
+            plan = Plan(
+                id=plan_id,
+                title=plan_data.title,
+                description=plan_data.description,
+                agent_signature=agent_id,
+                created_at=datetime.utcnow(),
+                version="1",
+                status="active"
+            )
+            session.add(plan)
+            
+            # Associate with thoughts if provided
+            if plan_data.thought_ids:
+                for thought_id in plan_data.thought_ids:
+                    result = await session.execute(
+                        select(Thought).where(Thought.id == thought_id)
+                    )
+                    thought = result.scalars().first()
+                    if thought:
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=agent_id
+                        )
+                        session.add(association)
+            
+            await session.commit()
+            return {"id": plan_id, "message": "Plan created successfully"}
+        
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error creating plan: {str(e)}")
+
+@app.post("/api/changes")
+async def create_change(change_data: ChangeCreate, agent_id: str = Depends(auth)):
+    """Create a new change with authentication"""
+    async with AsyncSessionLocal() as session:
+        try:
+            # Verify plan exists
+            result = await session.execute(
+                select(Plan).where(Plan.id == change_data.plan_id)
+            )
+            plan = result.scalars().first()
+            if not plan:
+                raise HTTPException(status_code=404, detail="Plan not found")
+            
+            change_id = str(uuid.uuid4())
+            change = Change(
+                id=change_id,
+                description=change_data.description,
+                agent_signature=agent_id,
+                created_at=datetime.utcnow(),
+                plan_id=change_data.plan_id
+            )
+            session.add(change)
+            
+            await session.commit()
+            return {"id": change_id, "message": "Change created successfully"}
+        
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error creating change: {str(e)}")
+
+# Expose primary ASGI application
+application = app
+
+
+# Initialize FastMCP with the properly configured app
+# Remove duplicate app initialization and configure middleware directly
+mcp = FastMCP(
+"mcp-tpc",
+description="MCP server for tracking thoughts, plans, and changes",
+app=app,
+host=os.getenv("HOST", "0.0.0.0"),
+port=os.getenv("PORT", "8050"),
+log_level="INFO",
+enable_metrics=True,
+enable_tracing=True,
+request_timeout=30,
+max_concurrent_requests=100
+)
+
 # Resources
 @mcp.resource("tpc://thoughts/active")
-async def get_active_thoughts() -> List[Dict[str, Any]]:
+async def get_active_thoughts() -> str:
     """Returns all active thoughts with their associated plans."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -497,7 +702,7 @@ async def get_active_thoughts() -> List[Dict[str, Any]]:
         )
         thoughts = result.scalars().all()
         
-        result = []
+        result_data = []
         for thought in thoughts:
             thought_dict = {
                 "id": thought.id,
@@ -521,12 +726,12 @@ async def get_active_thoughts() -> List[Dict[str, Any]]:
                     "title": plan.title
                 })
                 
-            result.append(thought_dict)
+            result_data.append(thought_dict)
             
-        return result
+        return json.dumps(result_data)
 
 @mcp.resource("tpc://plans/active")
-async def get_active_plans() -> List[Dict[str, Any]]:
+async def get_active_plans() -> str:
     """Returns all active plans with their associated thoughts."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -535,8 +740,8 @@ async def get_active_plans() -> List[Dict[str, Any]]:
             .order_by(Plan.created_at.desc())
         )
         plans = result.scalars().all()
-            
-        result = []
+        
+        result_data = []
         for plan in plans:
             plan_dict = {
                 "id": plan.id,
@@ -560,12 +765,12 @@ async def get_active_plans() -> List[Dict[str, Any]]:
                     "content": thought.content[:100] + "..." if len(thought.content) > 100 else thought.content
                 })
                 
-            result.append(plan_dict)
+            result_data.append(plan_dict)
             
-        return result
+        return json.dumps(result_data)
 
 @mcp.resource("tpc://changes/recent?limit={limit}")
-async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
+async def get_recent_changes(limit: int = 10) -> str:
     """Returns recent changes with plan details."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -575,8 +780,8 @@ async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
             .limit(limit)
         )
         changes = result.all()
-            
-        return [{
+        
+        result_data = [{
             "id": change.id,
             "description": change.description,
             "created_at": change.created_at.isoformat(),
@@ -584,6 +789,7 @@ async def get_recent_changes(limit: int = 10) -> List[Dict[str, Any]]:
             "plan_id": change.plan_id,
             "plan_title": title
         } for change, title in changes]
+        return json.dumps(result_data)
 
 # Agent Tools - Single Operations
 # Bulk Operations
@@ -631,11 +837,11 @@ async def add_thoughts_bulk(
                 results.append(f"Added thought: {thought_id}")
             
             await session.commit()
-            return results
+            return json.dumps(results)
             
         except Exception as e:
             await session.rollback()
-            return [f"Error in bulk operation: {str(e)}"]
+            return json.dumps([f"Error in bulk operation: {str(e)}"])
 
 @mcp.tool(
     name="add_thought",
@@ -736,11 +942,11 @@ async def create_plans_bulk(
                 results.append(f"Created plan: {plan_id}")
             
             await session.commit()
-            return results
+            return json.dumps(results)
             
         except Exception as e:
             await session.rollback()
-            return [f"Error in bulk operation: {str(e)}"]
+            return json.dumps([f"Error in bulk operation: {str(e)}"])
 
 @mcp.tool(
     name="create_plan",
@@ -836,11 +1042,11 @@ async def log_changes_bulk(
                 results.append(f"Logged change: {change_id}")
             
             await session.commit()
-            return results
+            return json.dumps(results)
             
         except Exception as e:
             await session.rollback()
-            return [f"Error in bulk operation: {str(e)}"]
+            return json.dumps([f"Error in bulk operation: {str(e)}"])
 
 @mcp.tool(
     name="log_change",
@@ -912,10 +1118,10 @@ async def get_recent_thoughts(ctx: Context, limit: int = 5) -> str:
                     "status": thought.status
                 })
             
-            return json.dumps(result, indent=2)
+            return json.dumps(result)
             
         except Exception as e:
-            return f"Error retrieving thoughts: {str(e)}"
+            return json.dumps({"error": f"Error retrieving thoughts: {str(e)}"})
 
 @mcp.tool()
 async def get_active_plans_tool(ctx: Context) -> str:
@@ -943,19 +1149,13 @@ async def get_active_plans_tool(ctx: Context) -> str:
                     "agent_signature": plan.agent_signature,
                     "created_at": plan.created_at.isoformat(),
                     "version": plan.version,
-                    "id": plan.id,
-                    "title": plan.title,
-                    "description": plan.description,
-                    "agent_signature": plan.agent_signature,
-                    "created_at": plan.created_at.isoformat(),
-                    "version": plan.version,
                     "status": plan.status
-               })
+                })
            
-            return json.dumps(result, indent=2)
-           
+            return json.dumps(result)
+            
         except Exception as e:
-           return f"Error retrieving plans: {str(e)}"
+           return json.dumps({"error": f"Error retrieving plans: {str(e)}"})
 
 @mcp.tool()
 async def get_changes_by_plan(ctx: Context, plan_id: str) -> str:
@@ -994,11 +1194,10 @@ async def get_changes_by_plan(ctx: Context, plan_id: str) -> str:
                    "plan_id": change.plan_id
                })
            
-           return json.dumps(result, indent=2)
+           return json.dumps(result)
            
        except Exception as e:
-           return f"Error retrieving changes: {str(e)}"
-
+           return json.dumps({"error": f"Error retrieving changes: {str(e)}"})
                              
 @mcp.tool()
 async def get_thought_details(ctx: Context, thought_id: str) -> str:
@@ -1043,10 +1242,10 @@ async def get_thought_details(ctx: Context, thought_id: str) -> str:
               "related_plans": related_plans
           }
           
-          return json.dumps(result, indent=2)
+          return json.dumps(result)
           
       except Exception as e:
-          return f"Error retrieving thought details: {str(e)}"
+          return json.dumps({"error": f"Error retrieving thought details: {str(e)}"})
 
 @mcp.tool()
 async def get_plan_details(ctx: Context, plan_id: str) -> str:
@@ -1108,41 +1307,12 @@ async def get_plan_details(ctx: Context, plan_id: str) -> str:
               "related_changes": related_changes
           }
           
-          return json.dumps(result, indent=2)
+          return json.dumps(result)
           
       except Exception as e:
-          return f"Error retrieving plan details: {str(e)}"
-
-
-@mcp.tool(
-   name="log_thought",
-   description="Log a thought to the database"
-)
-async def log_thought(thought: str) -> dict:
-   """Log a thought to the database"""
-   async with AsyncSessionLocal() as session:
-       new_thought = Thought(
-           id=str(uuid.uuid4()),
-           content=thought,
-           agent_signature="system",
-           created_at=datetime.utcnow()
-       )
-       session.add(new_thought)
-       await session.commit()
-   return {"status": "logged", "id": new_thought.id}
-
+          return json.dumps({"error": f"Error retrieving plan details: {str(e)}"})
 
 
 if __name__ == "__main__":
-    # Initialize server configuration
-
-    # Configure and run the MCP server with selected transport
-    transport = os.getenv("TRANSPORT", "sse")
-    
-    mcp.run(
-        host=os.getenv("HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", "8666")),
-        log_level="info",
-        transport=transport,
-        reload=True
-    )
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8050)
