@@ -1,11 +1,14 @@
 from fastapi import FastAPI, HTTPException, Request, status, Query, Depends
+from fastapi.security import OAuth2PasswordRequestForm
+from jose import jwt, JWTError
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 from fastmcp import FastMCP, Context
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+import traceback
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -20,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime, Index
+from sqlalchemy import create_engine, Column, String, Text, ForeignKey, DateTime, Index, func, delete
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from typing import List, Optional, Dict, Any
@@ -30,7 +33,39 @@ import sys
 import uuid
 
 # Import authentication
-from auth import auth, authentication_middleware
+# Auth imports disabled for local server
+# from auth import auth, authentication_middleware, get_current_user, verify_jwt_and_role, validate_api_key, oauth2_scheme, authenticate_user, get_password_hash, create_access_token, create_refresh_token, Token, get_db, pwd_context, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user_hybrid, verify_hybrid_and_role
+
+# Fallback definitions for disabled auth
+from typing import Optional
+class Token:
+    access_token: str
+    token_type: str
+
+def get_db():
+    db = AsyncSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+async def get_current_user_hybrid(request, db):
+    # Default local user for unauthenticated local access
+    class LocalUser:
+        def __init__(self):
+            self.username = "local_user"
+            self.role = "user"
+            self.id = "local"
+    logger.info("Using default local user for unauthenticated access")
+    return LocalUser()
+
+def verify_hybrid_and_role(required_roles: str = "user"):
+    async def _verify(*args, **kwargs):
+        return get_current_user_hybrid(*args, **kwargs)
+    return _verify
+
+oauth2_scheme = None  # Not used
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 load_dotenv()
 
@@ -110,22 +145,74 @@ class Change(Base):
     # Relationship to plan (many-to-one)
     plan = relationship("Plan", back_populates="changes")
 
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(String, primary_key=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default="user", index=True)
+    
+    # Relationships
+    api_keys = relationship("ApiKey", back_populates="user")
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    key_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+    
+    # Relationship
+    user = relationship("User", back_populates="api_keys")
+
 # Pydantic models for request/response
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class ApiKeyGenerate(BaseModel):
+    role: str
+
+class ApiKeyResponse(BaseModel):
+    id: str
+    role: str
+    created_at: datetime
+    plain_key: str  # Only returned on creation
+
 class ThoughtCreate(BaseModel):
     content: str
-    agent_signature: str
+    agent_signature: Optional[str] = None  # Default to local_user
     plan_ids: Optional[List[str]] = Field(default=None)
 
 class PlanCreate(BaseModel):
     title: str
     description: str
-    agent_signature: str
+    agent_signature: Optional[str] = None
     thought_ids: Optional[List[str]] = Field(default=None)
 
 class ChangeCreate(BaseModel):
     description: str
-    agent_signature: str
+    agent_signature: Optional[str] = None
     plan_id: str
+
+class BulkDelete(BaseModel):
+    ids: List[str]
+
+class BulkAssociate(BaseModel):
+    source_ids: List[str]
+    target_ids: List[str]
+
+class BulkExport(BaseModel):
+    ids: List[str]
+    format: str = "json"
 
 # Async Database Configuration
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -228,8 +315,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add authentication middleware
-app.middleware("http")(authentication_middleware)
+# Hybrid authentication middleware
+async def hybrid_auth_middleware(request: Request, call_next):
+    logger.info(f"Auth middleware: {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+    logger.info(f"Request headers: {dict(request.headers)}")  # Log all headers for debugging
+    if request.method == "GET" or request.url.path in ["/api/health", "/", "/thoughts", "/plans", "/changes", "/api-keys", "/login", "/refresh"]:
+        logger.info("Skipping auth for GET/public path")
+        return await call_next(request)
+    
+    try:
+        logger.info("Trying API key auth")
+        # Try API key
+        user = await validate_api_key(request)
+        request.state.current_user = user
+        logger.info(f"API key auth successful for user: {user.username if user else 'unknown'}")
+    except HTTPException as e:
+        logger.warning(f"API key auth failed: {e.detail}")
+        try:
+            logger.info("Trying JWT auth")
+            # Try JWT
+            token = request.headers.get("Authorization")
+            logger.info(f"Authorization header present: {bool(token)}")
+            if token and token.startswith("Bearer "):
+                token = token[7:]
+                user = await get_current_user(token, AsyncSessionLocal())
+                request.state.current_user = user
+                logger.info(f"JWT auth successful for user: {user.username if user else 'unknown'}")
+            else:
+                logger.warning("No valid Bearer token found")
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except HTTPException as e2:
+            logger.warning(f"JWT auth failed: {e2.detail}")
+            try:
+                logger.info("Falling back to signature auth")
+                # Fallback to signature
+                agent_id = await auth(request)
+                request.state.agent_id = agent_id
+                logger.info(f"Signature auth successful for agent: {agent_id}")
+            except HTTPException as e3:
+                logger.error(f"Signature auth failed: {e3.detail}")
+                logger.error(f"Full auth failure - returning 403 for {request.method} {request.url.path}")
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Not authenticated - all auth methods failed"}
+                )
+    
+    return await call_next(request)
+
+# Authentication disabled for local MCP server
+# Hybrid auth middleware commented out
+# app.middleware("http")(hybrid_auth_middleware)
+
+# TPC Enforcement Middleware - Prototype (kept but skips API writes for thoughts/plans/changes)
+async def tpc_enforcement_middleware(request: Request, call_next):
+    """Middleware to enforce TPC logging policy on write operations."""
+    logger.info(f"TPC enforcement: {request.method} {request.url.path}")
+    
+    # Check for write operations to API endpoints (skip for thoughts, plans, changes)
+    if (request.method in ["POST", "PUT", "DELETE"] and
+        request.url.path.startswith("/api/") and
+        "changes" not in request.url.path and "thoughts" not in request.url.path and "plans" not in request.url.path):
+        
+        plan_id = request.headers.get("X-TPC-Plan-ID")
+        if not plan_id:
+            logger.warning(f"TPC enforcement failed: No X-TPC-Plan-ID header for {request.method} {request.url.path}")
+            raise HTTPException(
+                status_code=400,
+                detail="TPC Policy Violation: Write operations require X-TPC-Plan-ID header linking to a plan. Log via /api/changes first."
+            )
+        logger.info(f"TPC enforcement passed: Plan ID {plan_id} provided for {request.url.path}")
+    
+    response = await call_next(request)
+    return response
+
+# Add TPC enforcement middleware
+app.middleware("http")(tpc_enforcement_middleware)
 
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -260,34 +420,124 @@ async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/thoughts", response_class=HTMLResponse)
-async def read_thoughts(request: Request):
-    """Endpoint serving the thoughts page"""
+async def read_thoughts(
+    request: Request,
+    db = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Endpoint serving the paginated thoughts page"""
+    current_user = await get_current_user_hybrid(request, db)
+    logger.info(f"Thoughts endpoint accessed: user={getattr(current_user, 'username', 'None')}, role={getattr(current_user, 'role', 'None')}")
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Thought).order_by(Thought.created_at.desc())
-        )
+        logger.info("Building base query for thoughts")
+        base_query = select(Thought).order_by(Thought.created_at.desc())
+        
+        # Log unfiltered total
+        unfiltered_count_query = select(func.count(Thought.id))
+        unfiltered_result = await session.execute(unfiltered_count_query)
+        unfiltered_total = unfiltered_result.scalar()
+        logger.info(f"Unfiltered total thoughts in DB: {unfiltered_total}")
+        
+        # Removed user-specific filtering to show all items like recent-activity
+        logger.info("No agent_signature filtering applied - showing all thoughts")
+        
+        # Get total count (unfiltered)
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        logger.info(f"Final total thoughts count from query: {total}")
+        
+        # Log sample agent_signatures
+        sample_query = select(Thought.agent_signature).distinct().limit(5)
+        sample_result = await session.execute(sample_query)
+        samples = sample_result.scalars().all()
+        logger.info(f"Sample distinct agent_signatures in DB: {list(samples)}")
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         thoughts = result.scalars().all()
+        logger.info(f"Fetched {len(thoughts)} thoughts for page {page}, limit {limit}")
+        
+        total_pages = (total + limit - 1) // limit if total > 0 else 1
+        
     return templates.TemplateResponse(
         "thoughts.html",
-        {"request": request, "thoughts": thoughts}
+        {
+            "request": request,
+            "thoughts": thoughts,
+            "current_user": current_user,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
     )
 
 @app.get("/plans", response_class=HTMLResponse)
-async def read_plans(request: Request):
-    """Endpoint serving the plans page"""
+async def read_plans(
+    request: Request,
+    db = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Endpoint serving the paginated plans page"""
+    current_user = await get_current_user_hybrid(request, db)
+    logger.info(f"Plans endpoint accessed: user={getattr(current_user, 'username', 'None')}, role={getattr(current_user, 'role', 'None')}")
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Plan).order_by(Plan.created_at.desc())
-        )
+        logger.info("Building base query for plans")
+        base_query = select(Plan).order_by(Plan.created_at.desc())
+        
+        # Log unfiltered total
+        unfiltered_count_query = select(func.count(Plan.id))
+        unfiltered_result = await session.execute(unfiltered_count_query)
+        unfiltered_total = unfiltered_result.scalar()
+        logger.info(f"Unfiltered total plans in DB: {unfiltered_total}")
+        
+        # Removed user-specific filtering to show all items like recent-activity
+        logger.info("No agent_signature filtering applied - showing all plans")
+        
+        # Get total count (unfiltered)
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        logger.info(f"Final total plans count from query: {total}")
+        
+        # Log sample agent_signatures
+        sample_query = select(Plan.agent_signature).distinct().limit(5)
+        sample_result = await session.execute(sample_query)
+        samples = sample_result.scalars().all()
+        logger.info(f"Sample distinct agent_signatures in DB: {list(samples)}")
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         plans = result.scalars().all()
+        logger.info(f"Fetched {len(plans)} plans for page {page}, limit {limit}")
+        
+        total_pages = (total + limit - 1) // limit if total > 0 else 1
+        
     return templates.TemplateResponse(
         "plans.html",
-        {"request": request, "plans": plans}
+        {
+            "request": request,
+            "plans": plans,
+            "current_user": current_user,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
     )
 
 @app.get("/plans/{plan_id}", response_class=HTMLResponse)
-async def read_plan(plan_id: str, request: Request):
+async def read_plan(plan_id: str, request: Request, db = Depends(get_db)):
     """Endpoint serving a single plan's details"""
+    current_user = await get_current_user_hybrid(request, db)
+    logger.info(f"Accessing plan detail {plan_id}: current_user.username={getattr(current_user, 'username', 'None')}, current_user.role={getattr(current_user, 'role', 'None')}")
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Plan).where(Plan.id == plan_id)
@@ -295,22 +545,24 @@ async def read_plan(plan_id: str, request: Request):
         plan = result.scalars().first()
         if not plan:
             raise HTTPException(status_code=404, detail="Plan not found")
-    
-        # Get associated thoughts via join table
-        thoughts_result = await session.execute(
-            select(Thought).join(
-                ThoughtPlanAssociation,
-                Thought.id == ThoughtPlanAssociation.thought_id
-            ).where(
-                ThoughtPlanAssociation.plan_id == plan_id
-            )
+        logger.info(f"Plan {plan_id} found: agent_signature={plan.agent_signature}")
+        # No permission check - full access for local development
+        
+        # Get associated thoughts via join table - no filtering
+        thoughts_query = select(Thought).join(
+            ThoughtPlanAssociation,
+            Thought.id == ThoughtPlanAssociation.thought_id
+        ).where(
+            ThoughtPlanAssociation.plan_id == plan_id
         )
+        logger.info("No filtering applied for thoughts in plan detail - full access")
+        thoughts_result = await session.execute(thoughts_query)
         thoughts = thoughts_result.scalars().all()
     
-        # Get associated changes
-        changes_result = await session.execute(
-            select(Change).where(Change.plan_id == plan_id)
-        )
+        # Get associated changes - no filtering
+        changes_query = select(Change).where(Change.plan_id == plan_id)
+        logger.info("No filtering applied for changes in plan detail - full access")
+        changes_result = await session.execute(changes_query)
         changes = changes_result.scalars().all()
     
     return templates.TemplateResponse(
@@ -319,37 +571,100 @@ async def read_plan(plan_id: str, request: Request):
             "request": request,
             "plan": plan,
             "thoughts": thoughts,
-            "changes": changes
+            "changes": changes,
+            "current_user": current_user
         }
     )
 
 @app.get("/changes", response_class=HTMLResponse)
-async def read_changes(request: Request):
-    """Endpoint serving the changes page"""
+async def read_changes(
+    request: Request,
+    db = Depends(get_db),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Endpoint serving the paginated changes page"""
+    current_user = await get_current_user_hybrid(request, db)
+    logger.info(f"Accessing /changes as user: {current_user.username} (role: {current_user.role})")
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Change, Plan.title)
-            .outerjoin(Plan, Change.plan_id == Plan.id)
-            .order_by(Change.created_at.desc())
-        )
+        base_query = select(Change, Plan.title).outerjoin(Plan, Change.plan_id == Plan.id).order_by(Change.created_at.desc())
+        
+        # Log unfiltered total
+        unfiltered_count_query = select(func.count(Change.id))
+        unfiltered_result = await session.execute(unfiltered_count_query)
+        unfiltered_total = unfiltered_result.scalar()
+        logger.info(f"Unfiltered total changes in DB: {unfiltered_total}")
+        
+        # Removed user-specific filtering to show all items like recent-activity
+        logger.info("No agent_signature filtering applied - showing all changes")
+        
+        # Get total count (unfiltered)
+        count_query = select(func.count(Change.id)).select_from(Change).outerjoin(Plan, Change.plan_id == Plan.id)
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        logger.info(f"Final total changes count from query: {total}")
+        
+        # Log sample agent_signatures
+        sample_query = select(Change.agent_signature).distinct().limit(5)
+        sample_result = await session.execute(sample_query)
+        samples = sample_result.scalars().all()
+        logger.info(f"Sample distinct agent_signatures in DB: {list(samples)}")
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         changes = result.all()
-    
-    # Convert to list of dicts for easier template access
-    changes_data = [{
-        'id': change.id,
-        'description': change.description,
-        'created_at': change.created_at,
-        'agent_signature': change.agent_signature,
-        'plan_id': change.plan_id,
-        'plan_title': plan_title
-    } for change, plan_title in changes]
-    
+        
+        # Convert to list of dicts
+        changes_data = [{
+            'id': change.id,
+            'description': change.description,
+            'created_at': change.created_at,
+            'agent_signature': change.agent_signature,
+            'plan_id': change.plan_id,
+            'plan_title': plan_title
+        } for change, plan_title in changes]
+        
+        total_pages = (total + limit - 1) // limit if total > 0 else 1
+        
     return templates.TemplateResponse(
         "changes.html",
-        {"request": request, "changes": changes_data}
+        {
+            "request": request,
+            "changes": changes_data,
+            "current_user": current_user,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
     )
 
 # API Endpoints (FastAPI routes)
+# Auth endpoints disabled for local server
+# @app.post("/login")
+# async def login_for_access_token(...): ...
+
+# @app.post("/register")
+# async def register_user(...): ...
+
+# API keys endpoints disabled
+# @app.get("/api-keys", response_class=HTMLResponse)
+# async def api_keys_page(...): ...
+
+# @app.get("/api/api-keys")
+# async def get_api_keys(...): ...
+
+# @app.post("/api-keys/generate")
+# async def generate_api_key(...): ...
+
+# @app.delete("/api-keys/{key_id}")
+# async def revoke_api_key(...): ...
+
+# @app.post("/refresh", response_model=Token)
+# async def refresh_access_token(...): ...
+
 @app.get("/api/health", tags=["System Health"])
 async def health_check():
     """Health check endpoint with database verification"""
@@ -373,23 +688,38 @@ async def health_check():
 async def api_recent_activity():
     """Combines recent thoughts, plans and changes"""
     async with AsyncSessionLocal() as session:
+        logger.info("Fetching recent activity - no user filtering applied")
+        
+        # Log totals before limiting
+        thoughts_count = await session.execute(select(func.count(Thought.id)))
+        logger.info(f"Total thoughts in DB: {thoughts_count.scalar()}")
+        
+        plans_count = await session.execute(select(func.count(Plan.id)))
+        logger.info(f"Total plans in DB: {plans_count.scalar()}")
+        
+        changes_count = await session.execute(select(func.count(Change.id)))
+        logger.info(f"Total changes in DB: {changes_count.scalar()}")
+        
         # Get recent thoughts
         thoughts_result = await session.execute(
             select(Thought).order_by(Thought.created_at.desc()).limit(5)
         )
         thoughts = thoughts_result.scalars().all()
+        logger.info(f"Fetched {len(thoughts)} recent thoughts with agents: {[t.agent_signature for t in thoughts]}")
 
         # Get recent plans
         plans_result = await session.execute(
             select(Plan).order_by(Plan.created_at.desc()).limit(5)
         )
         plans = plans_result.scalars().all()
+        logger.info(f"Fetched {len(plans)} recent plans with agents: {[p.agent_signature for p in plans]}")
 
         # Get recent changes
         changes_result = await session.execute(
             select(Change).order_by(Change.created_at.desc()).limit(5)
         )
         changes = changes_result.scalars().all()
+        logger.info(f"Fetched {len(changes)} recent changes with agents: {[c.agent_signature for c in changes]}")
     
     # Format results
     result = []
@@ -423,46 +753,95 @@ async def api_recent_activity():
     
     # Sort combined results by timestamp
     result.sort(key=lambda x: x["timestamp"], reverse=True)
+    logger.info(f"Returning {len(result)} recent activity items")
     return result[:10]
 
 @app.get("/api/thoughts")
-async def get_all_thoughts():
-    """Get all thoughts"""
+async def get_all_thoughts(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Get paginated thoughts (public GET)"""
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Thought).order_by(Thought.created_at.desc())
-        )
+        base_query = select(Thought).order_by(Thought.created_at.desc())
+        
+        # Get total count
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         thoughts = result.scalars().all()
-    return thoughts
+        
+        return {
+            "data": thoughts,
+            "total": total,
+            "page": page,
+            "limit": limit
+        }
 
 @app.get("/api/plans")
-async def get_all_plans():
-    """Get all plans"""
+async def get_all_plans(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Get paginated plans (public GET)"""
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Plan).order_by(Plan.created_at.desc())
-        )
+        base_query = select(Plan).order_by(Plan.created_at.desc())
+        
+        # Get total count
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         plans = result.scalars().all()
-    return plans
+        
+        return {
+            "data": plans,
+            "total": total,
+            "page": page,
+            "limit": limit
+        }
 
 @app.get("/api/changes")
-async def get_all_changes():
-    """Get all changes with plan titles"""
+async def get_all_changes(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """Get paginated changes with plan titles (public GET)"""
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Change, Plan.title)
-            .outerjoin(Plan, Change.plan_id == Plan.id)
-            .order_by(Change.created_at.desc())
-        )
+        base_query = select(Change, Plan.title).outerjoin(Plan, Change.plan_id == Plan.id).order_by(Change.created_at.desc())
+        
+        # Get total count
+        count_query = select(func.count(Change.id)).select_from(Change).outerjoin(Plan, Change.plan_id == Plan.id)
+        total_result = await session.execute(count_query)
+        total = total_result.scalar()
+        
+        # Get paginated data
+        offset = (page - 1) * limit
+        paginated_query = base_query.offset(offset).limit(limit)
+        result = await session.execute(paginated_query)
         changes = result.all()
-    
-        result = []
+        
+        changes_data = []
         for change, plan_title in changes:
             change_dict = change.__dict__
             change_dict['plan_title'] = plan_title
-            result.append(change_dict)
-    
-        return result
+            changes_data.append(change_dict)
+        
+        return {
+            "data": changes_data,
+            "total": total,
+            "page": page,
+            "limit": limit
+        }
 
 # New API endpoints for enhanced functionality
 @app.get("/api/updates")
@@ -562,21 +941,32 @@ async def search_entities(q: str = Query(..., min_length=2)):
         
         return result_data
 
-# Enhanced CRUD operations with authentication
+# Enhanced CRUD operations (auth disabled for local)
 @app.post("/api/thoughts")
-async def create_thought(thought_data: ThoughtCreate, agent_id: str = Depends(auth)):
-    """Create a new thought with authentication"""
+async def create_thought(thought_data: ThoughtCreate, request: Request):
+    """Create a new thought - public for local webUI, defaults to local_user"""
+    # Use default local user
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    logger.info(f"Creating thought for local user {current_user.username}")
+    
+    # Use current_user.username as agent_sig, fallback to provided or default
+    agent_sig = thought_data.agent_signature or current_user.username
+    logger.info(f"Creating thought with agent_sig={agent_sig}, content length {len(thought_data.content)}, plan_ids={len(thought_data.plan_ids or [])}")
     async with AsyncSessionLocal() as session:
         try:
             thought_id = str(uuid.uuid4())
+            
+            logger.info(f"Generated thought_id={thought_id}, using agent_sig={agent_sig}")
+            
             thought = Thought(
                 id=thought_id,
                 content=thought_data.content,
-                agent_signature=agent_id,
+                agent_signature=agent_sig,
                 created_at=datetime.utcnow(),
                 status="active"
             )
             session.add(thought)
+            logger.info("Thought object added to session")
             
             # Associate with plans if provided
             if thought_data.plan_ids:
@@ -590,20 +980,29 @@ async def create_thought(thought_data: ThoughtCreate, agent_id: str = Depends(au
                             thought_id=thought_id,
                             plan_id=plan_id,
                             created_at=datetime.utcnow(),
-                            agent_signature=agent_id
+                            agent_signature=agent_sig
                         )
                         session.add(association)
+                        logger.info(f"Associated thought {thought_id} with plan {plan_id}")
+                    else:
+                        logger.warning(f"Plan {plan_id} not found for association with thought {thought_id}")
             
+            logger.info("Committing session...")
             await session.commit()
+            logger.info(f"Thought created successfully: {thought_id} by {agent_sig}")
             return {"id": thought_id, "message": "Thought created successfully"}
         
         except Exception as e:
             await session.rollback()
+            full_traceback = traceback.format_exc()
+            logger.error(f"Error creating thought for agent_sig={agent_sig}: {str(e)}\n{full_traceback}")
             raise HTTPException(status_code=500, detail=f"Error creating thought: {str(e)}")
 
 @app.post("/api/plans")
-async def create_plan(plan_data: PlanCreate, agent_id: str = Depends(auth)):
-    """Create a new plan with authentication"""
+async def create_plan(plan_data: PlanCreate, request: Request):
+    """Create a new plan - public for local, defaults to local_user"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    logger.info(f"Creating plan '{plan_data.title}' for local user {current_user.username} with {len(plan_data.thought_ids or [])} thoughts")
     async with AsyncSessionLocal() as session:
         try:
             plan_id = str(uuid.uuid4())
@@ -611,7 +1010,7 @@ async def create_plan(plan_data: PlanCreate, agent_id: str = Depends(auth)):
                 id=plan_id,
                 title=plan_data.title,
                 description=plan_data.description,
-                agent_signature=agent_id,
+                agent_signature=plan_data.agent_signature or current_user.username,
                 created_at=datetime.utcnow(),
                 version="1",
                 status="active"
@@ -630,20 +1029,26 @@ async def create_plan(plan_data: PlanCreate, agent_id: str = Depends(auth)):
                             thought_id=thought_id,
                             plan_id=plan_id,
                             created_at=datetime.utcnow(),
-                            agent_signature=agent_id
+                            agent_signature=current_user.username
                         )
                         session.add(association)
+                    else:
+                        logger.warning(f"Thought {thought_id} not found for association with plan {plan_id}")
             
             await session.commit()
+            logger.info(f"Plan created successfully: {plan_id}")
             return {"id": plan_id, "message": "Plan created successfully"}
         
         except Exception as e:
             await session.rollback()
+            logger.error(f"Error creating plan for {current_user.username}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error creating plan: {str(e)}")
 
 @app.post("/api/changes")
-async def create_change(change_data: ChangeCreate, agent_id: str = Depends(auth)):
-    """Create a new change with authentication"""
+async def create_change(change_data: ChangeCreate, request: Request):
+    """Create a new change - public for local, defaults to local_user"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    logger.info(f"Creating change for plan {change_data.plan_id} by local user {current_user.username}")
     async with AsyncSessionLocal() as session:
         try:
             # Verify plan exists
@@ -652,24 +1057,396 @@ async def create_change(change_data: ChangeCreate, agent_id: str = Depends(auth)
             )
             plan = result.scalars().first()
             if not plan:
+                logger.warning(f"Plan {change_data.plan_id} not found for change creation")
                 raise HTTPException(status_code=404, detail="Plan not found")
             
             change_id = str(uuid.uuid4())
+            agent_sig = change_data.agent_signature or current_user.username
             change = Change(
                 id=change_id,
                 description=change_data.description,
-                agent_signature=agent_id,
+                agent_signature=agent_sig,
                 created_at=datetime.utcnow(),
                 plan_id=change_data.plan_id
             )
             session.add(change)
             
             await session.commit()
+            logger.info(f"Change created successfully: {change_id} for plan {change_data.plan_id}")
             return {"id": change_id, "message": "Change created successfully"}
         
         except Exception as e:
             await session.rollback()
+            logger.error(f"Error creating change: {str(e)}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Error creating change: {str(e)}")
+
+
+# Bulk operations APIs
+class BulkDelete(BaseModel):
+    ids: List[str]
+
+class BulkAssociate(BaseModel):
+    source_ids: List[str]
+    target_ids: List[str]
+
+class BulkExport(BaseModel):
+    ids: List[str]
+    format: str = "json"
+
+@app.post("/api/plans/bulk-delete")
+async def bulk_delete_plans(data: BulkDelete, current_user = Depends(verify_hybrid_and_role('admin'))):
+    """Bulk delete plans and cascade associations"""
+    logger.info(f"Bulk deleting {len(data.ids)} plans for admin {current_user.username}")
+    async with AsyncSessionLocal() as session:
+        try:
+            deleted = 0
+            for plan_id in data.ids:
+                # Delete associations first
+                await session.execute(
+                    delete(ThoughtPlanAssociation).where(ThoughtPlanAssociation.plan_id == plan_id)
+                )
+                # Delete changes
+                await session.execute(
+                    delete(Change).where(Change.plan_id == plan_id)
+                )
+                # Delete plan
+                result = await session.execute(
+                    delete(Plan).where(Plan.id == plan_id)
+                )
+                deleted += result.rowcount
+                logger.info(f"Deleted plan {plan_id}")
+            await session.commit()
+            logger.info(f"Bulk delete completed: {deleted} plans deleted by {current_user.username}")
+            return {"deleted": deleted, "message": f"Deleted {deleted} plans"}
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Bulk delete plans failed for {current_user.username}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error deleting plans: {str(e)}")
+
+@app.post("/api/thoughts/bulk-delete")
+async def bulk_delete_thoughts(data: BulkDelete, current_user = Depends(verify_hybrid_and_role('admin'))):
+    """Bulk delete thoughts and associations"""
+    async with AsyncSessionLocal() as session:
+        try:
+            deleted = 0
+            for thought_id in data.ids:
+                # Delete associations
+                await session.execute(
+                    delete(ThoughtPlanAssociation).where(ThoughtPlanAssociation.thought_id == thought_id)
+                )
+                # Delete thought
+                result = await session.execute(
+                    delete(Thought).where(Thought.id == thought_id)
+                )
+                deleted += result.rowcount
+            await session.commit()
+            return {"deleted": deleted, "message": f"Deleted {deleted} thoughts"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error deleting thoughts: {str(e)}")
+
+@app.post("/api/changes/bulk-delete")
+async def bulk_delete_changes(data: BulkDelete, current_user = Depends(verify_hybrid_and_role('admin'))):
+    """Bulk delete changes"""
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                delete(Change).where(Change.id.in_(data.ids))
+            )
+            deleted = result.rowcount
+            await session.commit()
+            return {"deleted": deleted, "message": f"Deleted {deleted} changes"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error deleting changes: {str(e)}")
+
+@app.post("/api/thoughts/bulk-associate")
+async def bulk_associate_thoughts(data: BulkAssociate, current_user = Depends(verify_hybrid_and_role('agent|admin'))):
+    """Bulk associate thoughts to plans"""
+    async with AsyncSessionLocal() as session:
+        try:
+            created = 0
+            for thought_id in data.source_ids:
+                for plan_id in data.target_ids:
+                    # Check if association exists
+                    result = await session.execute(
+                        select(ThoughtPlanAssociation).where(
+                            ThoughtPlanAssociation.thought_id == thought_id,
+                            ThoughtPlanAssociation.plan_id == plan_id
+                        )
+                    )
+                    if not result.scalars().first():
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=current_user.username
+                        )
+                        session.add(association)
+                        created += 1
+            await session.commit()
+            return {"created": created, "message": f"Created {created} associations"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error associating thoughts: {str(e)}")
+
+@app.post("/api/plans/bulk-export")
+async def bulk_export_plans(data: BulkExport, request: Request):
+    """Bulk export plans as JSON or CSV - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Plan).where(Plan.id.in_(data.ids))
+            )
+            plans = result.scalars().all()
+            if data.format == 'csv':
+                import csv
+                from io import StringIO
+                output = StringIO()
+                writer = csv.DictWriter(output, fieldnames=['id', 'title', 'description', 'agent_signature', 'created_at'])
+                writer.writeheader()
+                for plan in plans:
+                    writer.writerow({
+                        'id': plan.id,
+                        'title': plan.title,
+                        'description': plan.description,
+                        'agent_signature': plan.agent_signature,
+                        'created_at': plan.created_at.isoformat()
+                    })
+                content = output.getvalue()
+                return FileResponse(StringIO(content), media_type='text/csv', filename='plans.csv')
+            else:
+                export_data = [plan.__dict__ for plan in plans]
+                content = json.dumps(export_data, default=str, indent=2)
+                return FileResponse(StringIO(content), media_type='application/json', filename='plans.json')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error exporting plans: {str(e)}")
+
+@app.post("/api/thoughts/bulk-export")
+async def bulk_export_thoughts(data: BulkExport, request: Request):
+    """Bulk export thoughts as JSON or CSV - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Thought).where(Thought.id.in_(data.ids))
+            )
+            thoughts = result.scalars().all()
+            if data.format == 'csv':
+                import csv
+                from io import StringIO
+                output = StringIO()
+                writer = csv.DictWriter(output, fieldnames=['id', 'content', 'agent_signature', 'created_at', 'status'])
+                writer.writeheader()
+                for thought in thoughts:
+                    writer.writerow({
+                        'id': thought.id,
+                        'content': thought.content,
+                        'agent_signature': thought.agent_signature,
+                        'created_at': thought.created_at.isoformat(),
+                        'status': thought.status
+                    })
+                content = output.getvalue()
+                return FileResponse(StringIO(content), media_type='text/csv', filename='thoughts.csv')
+            else:
+                export_data = [thought.__dict__ for thought in thoughts]
+                content = json.dumps(export_data, default=str, indent=2)
+                return FileResponse(StringIO(content), media_type='application/json', filename='thoughts.json')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error exporting thoughts: {str(e)}")
+
+@app.post("/api/changes/bulk-export")
+async def bulk_export_changes(data: BulkExport, request: Request):
+    """Bulk export changes as JSON or CSV - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                select(Change).where(Change.id.in_(data.ids))
+            )
+            changes = result.scalars().all()
+            if data.format == 'csv':
+                import csv
+                from io import StringIO
+                output = StringIO()
+                writer = csv.DictWriter(output, fieldnames=['id', 'description', 'agent_signature', 'created_at', 'plan_id'])
+                writer.writeheader()
+                for change in changes:
+                    writer.writerow({
+                        'id': change.id,
+                        'description': change.description,
+                        'agent_signature': change.agent_signature,
+                        'created_at': change.created_at.isoformat(),
+                        'plan_id': change.plan_id
+                    })
+                content = output.getvalue()
+                return FileResponse(StringIO(content), media_type='text/csv', filename='changes.csv')
+            else:
+                export_data = [change.__dict__ for change in changes]
+                content = json.dumps(export_data, default=str, indent=2)
+                return FileResponse(StringIO(content), media_type='application/json', filename='changes.json')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error exporting changes: {str(e)}")
+
+# Similar endpoints for thoughts and changes bulk export/associate can be added as needed
+
+
+# Bulk operations APIs - public for local, no auth required (duplicate block removed, using this one)
+@app.post("/api/plans/bulk-delete")
+async def bulk_delete_plans(data: BulkDelete, request: Request):
+    """Bulk delete plans and cascade associations - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            deleted = 0
+            for plan_id in data.ids:
+                # Delete associations first
+                await session.execute(
+                    delete(ThoughtPlanAssociation).where(ThoughtPlanAssociation.plan_id == plan_id)
+                )
+                # Delete changes
+                await session.execute(
+                    delete(Change).where(Change.plan_id == plan_id)
+                )
+                # Delete plan
+                result = await session.execute(
+                    delete(Plan).where(Plan.id == plan_id)
+                )
+                deleted += result.rowcount
+            await session.commit()
+            return {"deleted": deleted, "message": f"Deleted {deleted} plans"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error deleting plans: {str(e)}")
+
+@app.post("/api/thoughts/bulk-delete")
+async def bulk_delete_thoughts(data: BulkDelete, request: Request):
+    """Bulk delete thoughts and associations - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            deleted = 0
+            for thought_id in data.ids:
+                # Delete associations
+                await session.execute(
+                    delete(ThoughtPlanAssociation).where(ThoughtPlanAssociation.thought_id == thought_id)
+                )
+                # Delete thought
+                result = await session.execute(
+                    delete(Thought).where(Thought.id == thought_id)
+                )
+                deleted += result.rowcount
+            await session.commit()
+            return {"deleted": deleted, "message": f"Deleted {deleted} thoughts"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error deleting thoughts: {str(e)}")
+
+@app.post("/api/changes/bulk-delete")
+async def bulk_delete_changes(data: BulkDelete, request: Request):
+    """Bulk delete changes - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await session.execute(
+                delete(Change).where(Change.id.in_(data.ids))
+            )
+            deleted = result.rowcount
+            await session.commit()
+            return {"deleted": deleted, "message": f"Deleted {deleted} changes"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error deleting changes: {str(e)}")
+
+@app.post("/api/thoughts/bulk-associate")
+async def bulk_associate_thoughts(data: BulkAssociate, request: Request):
+    """Bulk associate thoughts to plans - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            created = 0
+            for thought_id in data.source_ids:
+                for plan_id in data.target_ids:
+                    # Check if association exists
+                    result = await session.execute(
+                        select(ThoughtPlanAssociation).where(
+                            ThoughtPlanAssociation.thought_id == thought_id,
+                            ThoughtPlanAssociation.plan_id == plan_id
+                        )
+                    )
+                    if not result.scalars().first():
+                        association = ThoughtPlanAssociation(
+                            thought_id=thought_id,
+                            plan_id=plan_id,
+                            created_at=datetime.utcnow(),
+                            agent_signature=current_user.username
+                        )
+                        session.add(association)
+                        created += 1
+            await session.commit()
+            return {"created": created, "message": f"Created {created} associations"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error associating thoughts: {str(e)}")
+
+@app.post("/api/changes/bulk-associate")
+async def bulk_associate_changes(data: BulkAssociate, request: Request):
+    """Bulk associate changes to plans (update plan_id) - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            updated = 0
+            for change_id in data.source_ids:
+                # Update plan_id to the first target plan
+                if data.target_ids:
+                    plan_id = data.target_ids[0]
+                    result = await session.execute(
+                        select(Change).where(Change.id == change_id)
+                    )
+                    change = result.scalars().first()
+                    if change:
+                        change.plan_id = plan_id
+                        updated += 1
+            await session.commit()
+            return {"updated": updated, "message": f"Updated {updated} changes"}
+        except Exception as e:
+            await session.rollback()
+            raise HTTPException(status_code=500, detail=f"Error associating changes: {str(e)}")
+
+@app.post("/api/plans/bulk-export")
+async def bulk_export_plans(data: BulkExport, request: Request):
+    """Bulk export plans as JSON or CSV - public for local"""
+    current_user = await get_current_user_hybrid(request, AsyncSessionLocal())
+    async with AsyncSessionLocal() as session:
+        try:
+            query = select(Plan).where(Plan.id.in_(data.ids))
+            result = await session.execute(query)
+            plans = result.scalars().all()
+            if data.format == 'csv':
+                import csv
+                from io import StringIO
+                output = StringIO()
+                writer = csv.DictWriter(output, fieldnames=['id', 'title', 'description', 'agent_signature', 'created_at'])
+                writer.writeheader()
+                for plan in plans:
+                    writer.writerow({
+                        'id': plan.id,
+                        'title': plan.title,
+                        'description': plan.description,
+                        'agent_signature': plan.agent_signature,
+                        'created_at': plan.created_at.isoformat()
+                    })
+                content = output.getvalue()
+                return FileResponse(StringIO(content), media_type='text/csv', filename='plans.csv')
+            else:
+                export_data = [plan.__dict__ for plan in plans]
+                content = json.dumps(export_data, default=str, indent=2)
+                return FileResponse(StringIO(content), media_type='application/json', filename='plans.json')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error exporting plans: {str(e)}")
+
+# Similar endpoints for thoughts and changes bulk export/associate can be added as needed
 
 # Expose primary ASGI application
 application = app

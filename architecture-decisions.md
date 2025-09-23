@@ -5,8 +5,8 @@
 ### Backend Framework: FastAPI (Python)
 - **Rationale**: Already used in existing codebase, provides excellent async support, automatic OpenAPI documentation, and high performance. Leverages existing investment.
 - **Key Components**: 
-  - [`main.py`](main.py:1) - Core application with routes and MCP integration
-  - SQLAlchemy ORM with async support
+  - [`main.py`](main.py:1) - Core application with routes, inline models, and MCP integration
+  - SQLAlchemy ORM with async support (models inline in main.py)
   - Pydantic models for data validation
 
 ### Database: SQLite with SQLAlchemy
@@ -33,14 +33,12 @@
 ### Monolithic Application Structure
 ```
 tpc-server/
-├── main.py              # FastAPI app + MCP server
-├── auth.py              # Authentication middleware
-├── models.py            # SQLAlchemy models (if separated)
+├── main.py              # FastAPI app + MCP server (inline models)
+├── auth.py              # Authentication middleware (disabled for local)
 ├── requirements.txt     # Dependencies
 ├── tpc_server.db        # SQLite database
 ├── templates/           # Jinja2 templates
-├── static/             # CSS/JS assets
-└── mcp_tools/          # MCP tool implementations
+└── static/              # CSS/JS assets
 ```
 
 ### Data Flow
@@ -61,28 +59,44 @@ tpc-server/
 ```python
 # Thoughts - Raw insights and reasoning
 class Thought(Base):
-    id: int
-    content: str
-    created_at: datetime
-    signature: str  # Agent signature for auth
+    __tablename__ = "thoughts"
+    id = Column(String, primary_key=True)
+    content = Column(Text, nullable=False)
+    agent_signature = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    status = Column(String, default="active", index=True)
+    plans = relationship("Plan", secondary="thought_plan_association", back_populates="thoughts")
 
 # Plans - Structured intentions
 class Plan(Base):
-    id: int
-    title: str
-    description: str
-    version: int
-    created_at: datetime
-    signature: str  # Agent signature
-    thoughts: List[Thought]  # Many-to-many relationship
+    __tablename__ = "plans"
+    id = Column(String, primary_key=True)
+    title = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    agent_signature = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    version = Column(String, default="1")
+    status = Column(String, default="active", index=True)
+    thoughts = relationship("Thought", secondary="thought_plan_association", back_populates="plans")
+    changes = relationship("Change", back_populates="plan")
 
 # Changes - Executed actions
 class Change(Base):
-    id: int
-    description: str
-    executed_at: datetime
-    signature: str  # Agent signature
-    plan_id: int    # Foreign key to Plan
+    __tablename__ = "changes"
+    id = Column(String, primary_key=True)
+    description = Column(Text, nullable=False)
+    agent_signature = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    plan_id = Column(String, ForeignKey("plans.id"), nullable=False)
+    plan = relationship("Plan", back_populates="changes")
+
+# Association table
+class ThoughtPlanAssociation(Base):
+    __tablename__ = "thought_plan_association"
+    thought_id = Column(String, ForeignKey("thoughts.id"), primary_key=True)
+    plan_id = Column(String, ForeignKey("plans.id"), primary_key=True, index=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    agent_signature = Column(String, nullable=False, index=True)
 ```
 
 ### Authentication Model

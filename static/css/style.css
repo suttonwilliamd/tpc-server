@@ -146,6 +146,70 @@ body {
     box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
 }
 
+/* Rich text editor */
+.rich-text {
+    border: 1px solid #ccc;
+    min-height: 100px;
+    padding: 10px;
+    overflow-y: auto;
+    outline: none;
+}
+
+.rich-text:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+}
+
+.rich-text-toolbar {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.rich-text-toolbar .btn {
+    padding: 4px 8px;
+    font-size: 0.875rem;
+}
+
+/* Expandable cards */
+.card.expandable {
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.card.expandable:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.card-body.collapsed {
+    display: none;
+}
+
+.metadata {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+/* Bulk operations */
+.bulk-actions {
+    position: sticky;
+    bottom: 0;
+    background: white;
+    padding: 10px;
+    border-top: 1px solid #ccc;
+    z-index: 10;
+}
+
+.bulk-select {
+    margin-right: 10px;
+    transform: scale(1.2);
+}
+
+.bulk-actions .btn {
+    margin-left: 5px;
+}
+
 .btn-primary {
     background-color: #3498db;
     border-color: #3498db;
