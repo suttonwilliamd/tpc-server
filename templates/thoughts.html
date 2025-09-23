@@ -5,18 +5,62 @@
     <h2>Thoughts</h2>
     <div class="mb-3">
         <a href="/" class="btn btn-outline-secondary">Back to Home</a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createThoughtModal">New Thought</button>
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createPlanModal">New Plan</button>
     </div>
     
-    <div class="list-group">
+    <div class="row">
         {% for thought in thoughts %}
-        <a href="#" class="list-group-item list-group-item-action">
-            <div class="d-flex w-100 justify-content-between">
-                <h5 class="mb-1">{{ thought.content|truncate(100) }}</h5>
-                <small>{{ thought.created_at }}</small>
+        <div class="col-md-6 mb-3">
+            <div class="card expandable">
+                <div class="card-header d-flex justify-content-between align-items-start">
+                    <input type="checkbox" class="bulk-select" value="{{ thought.id }}">
+                    <h6 class="card-title mb-0 ms-2">{{ thought.content[:50] }}{% if thought.content|length > 50 %}...{% endif %}</h6>
+                    <button class="btn btn-sm btn-outline-secondary expand-btn">Expand</button>
+                </div>
+                <div class="card-body collapsed">
+                    <h6 class="card-subtitle mb-2 text-muted">
+                        Status: <span class="badge bg-{{ 'success' if thought.status == 'active' else 'warning' }}">{{ thought.status }}</span>
+                    </h6>
+                    <p class="card-text">{{ thought.content }}</p>
+                </div>
+                <div class="card-footer text-muted">
+                    Created by {{ thought.agent_signature }} on {{ thought.created_at }}
+                </div>
             </div>
-            <p class="mb-1">By: {{ thought.agent_signature }}</p>
-        </a>
+        </div>
         {% endfor %}
+    </div>
+
+    {% if total_pages > 1 %}
+    <nav aria-label="Thoughts pagination" class="mt-4">
+        <ul class="pagination justify-content-center">
+            <li class="page-item{% if page == 1 %} disabled{% endif %}">
+                <a class="page-link" href="?page={{ page - 1 }}&limit={{ limit }}" data-page="{{ page - 1 }}">Previous</a>
+            </li>
+            {% for p in range(1, total_pages + 1) %}
+            <li class="page-item{% if p == page %} active{% endif %}">
+                <a class="page-link" href="?page={{ p }}&limit={{ limit }}" data-page="{{ p }}">{{ p }}</a>
+            </li>
+            {% endfor %}
+            <li class="page-item{% if page == total_pages %} disabled{% endif %}">
+                <a class="page-link" href="?page={{ page + 1 }}&limit={{ limit }}" data-page="{{ page + 1 }}">Next</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    <div class="bulk-actions mt-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <span id="selectedCount">0 selected</span>
+            </div>
+            <div>
+                <button class="btn btn-danger me-2" id="bulkDelete">Delete Selected</button>
+                <button class="btn btn-success me-2" id="bulkExport">Export</button>
+                <button class="btn btn-info" id="bulkAssign">Assign</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

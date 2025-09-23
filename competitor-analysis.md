@@ -21,32 +21,33 @@ Use Case: Tracking and auditing the decision-making process of AI agents, provid
 - Additional Libraries: Pydantic, aiosqlite, python-dotenv, uvicorn
 
 ### Key Patterns and Architecture Approaches
-- Monolithic FastAPI Application: All functionality in main.py with integrated MCP server
-- Async Database Operations: Uses SQLAlchemy's async support with connection pooling
-- Three-Tier Data Model:
-  - Thoughts (raw insights)
-  - Plans (structured intentions)
-  - Changes (executed actions)
-- MCP-First Design: Tools and resources exposed through Model Context Protocol for AI agent integration
-- Bootstrap-Based Responsive UI: Simple but functional web interface
-- Environment-Based Configuration: Uses .env files for database, host, port, and transport settings
+- Monolithic FastAPI Application: All functionality in main.py with integrated MCP server (inline models).
+- Async Database Operations: Uses SQLAlchemy's async support with connection pooling/indexes.
+- Three-Tier Data Model with Relationships:
+  - Thoughts (raw insights, many-to-many with plans via association table)
+  - Plans (structured intentions, one-to-many with changes)
+  - Changes (executed actions, linked to plans)
+- MCP-First Design: Tools/resources (tpc://thoughts/active, add_thought, etc.) for AI agent integration.
+- Bootstrap-Based Responsive UI: Cards, modals, bulk actions, vanilla JS polling for real-time.
+- Environment-Based Configuration: Uses .env for DB URL, host/port, transport (SSE/stdio).
 
 ### Strengths and Competitive Advantages
-- Specialized for AI Agents: Built specifically for tracking agent reasoning processes
-- MCP Integration: Native support for AI agent tools through standardized protocol
-- Lightweight and Simple: Easy to deploy with SQLite backend
-- Relationship Tracking: Strong emphasis on connecting thoughts→plans→changes
-- Open Source: GitHub repository available for community contributions
+- Specialized for AI Agents: Built for tracking reasoning (thoughts→plans→changes) with agent_signature attribution.
+- MCP Integration: Native tools/resources (add_thought, create_plan, log_change, get_details) via FastMCP.
+- Lightweight and Simple: Deploy with SQLite, uvicorn; no external deps beyond requirements.txt.
+- Relationship Tracking: Full many-to-many (thoughts-plans), one-to-many (plans-changes) with indexes.
+- Enhanced UI/API: Web cards/modals/bulk, real-time polling (/api/updates), search/bulk-export.
+- Open Source: GitHub repository for contributions.
 
 ### Obvious Weaknesses and Limitations
-- Limited User Management: No authentication or user roles - all agents use simple signatures
-- Basic Web Interface: Templated HTML with minimal interactivity beyond listing
-- No Advanced Querying: Basic filtering and search capabilities missing
-- Single Database Support: While configurable, lacks built-in support for multiple database backends
-- No Export/Import: No data migration or backup features
-- Minimal Error Handling: Basic error responses without detailed debugging
-- No Version History: Plans have version field but no actual version tracking
-- Limited API: Only GET endpoints for data retrieval, no CRUD operations via API
+- Authentication Disabled for Local: User/ApiKey models implemented but hybrid auth middleware commented out (defaults to local_user; pending activation for production).
+- Basic Web Interface: Templated HTML with cards/modals/bulk actions, but no advanced JS framework (vanilla JS polling for real-time).
+- Querying Limited to Params: Filtering via pagination/page/limit; search via /api/search (top 5 per type, min length 2).
+- Single Database Default: SQLite primary, configurable URL for others (no built-in multi-DB support).
+- Export Implemented but Basic: Bulk JSON/CSV via API (no import/migration).
+- Error Handling: Basic HTTP exceptions/logging; detailed debugging via SQL echo.
+- Version Field: Plans have version but no automatic tracking/history.
+- API Full CRUD: GET/POST for thoughts/plans/changes, bulk ops; auth disabled for local.
 
 ### Competitor Positioning
 This application competes in the AI agent observability space, similar to tools like:

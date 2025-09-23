@@ -2,24 +2,48 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="card">
-        <div class="card-header">
-            <h2>{{ plan.title }}</h2>
+    <script>
+        window.planData = {
+            plan: { id: '{{ plan.id }}', title: '{{ plan.title }}' },
+            thoughts: [{% for thought in thoughts %}{ id: '{{ thought.id }}', title: '{{ thought.content[:20] }}', x: {{ loop.index0 * 200 + 100 }}, y: 150 }{% if not loop.last %},{% endif %}{% endfor %}],
+            changes: [{% for change in changes %}{ id: '{{ change.id }}', title: '{{ change.description[:20] }}', x: {{ loop.index0 * 200 + 100 }}, y: 250 }{% if not loop.last %},{% endif %}{% endfor %}]
+        };
+    </script>
+    <div class="card expandable mb-4">
+        <div class="card-header d-flex justify-content-between align-items-start">
+            <h2 class="mb-0">{{ plan.title }}</h2>
+            <button class="btn btn-sm btn-outline-secondary expand-btn">Expand</button>
         </div>
-        <div class="card-body">
+        <div class="card-body collapsed">
             <p class="card-text">{{ plan.description }}</p>
-            <p class="text-muted">Created: {{ plan.created_at }}</p>
+            <div class="metadata">
+                <small class="text-muted">Created: {{ plan.created_at }} | By: {{ plan.agent_signature }} | Version: {{ plan.version }} | Status: <span class="badge bg-{{ 'success' if plan.status == 'active' else 'warning' }}">{{ plan.status }}</span></small>
+            </div>
         </div>
+    </div>
+
+    <div class="relationship-tree" id="relationshipTree">
+        <!-- JS will render tree/graph here -->
     </div>
 
     <div class="mt-4">
         <h3>Associated Thoughts</h3>
         {% if thoughts %}
-            <div class="list-group">
+            <div class="row">
                 {% for thought in thoughts %}
-                <div class="list-group-item">
-                    <p>{{ thought.content }}</p>
-                    <small class="text-muted">By: {{ thought.agent_signature }}</small>
+                <div class="col-md-6 mb-3">
+                    <div class="card expandable">
+                        <div class="card-header d-flex justify-content-between align-items-start">
+                            <h6 class="mb-0">{{ thought.content[:50] }}{% if thought.content|length > 50 %}...{% endif %}</h6>
+                            <button class="btn btn-sm btn-outline-secondary expand-btn">Expand</button>
+                        </div>
+                        <div class="card-body collapsed">
+                            <p>{{ thought.content }}</p>
+                            <div class="metadata">
+                                <small class="text-muted">Created: {{ thought.created_at }} | By: {{ thought.agent_signature }}</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -31,11 +55,21 @@
     <div class="mt-4">
         <h3>Associated Changes</h3>
         {% if changes %}
-            <div class="list-group">
+            <div class="row">
                 {% for change in changes %}
-                <div class="list-group-item">
-                    <p>{{ change.description }}</p>
-                    <small class="text-muted">By: {{ change.agent_signature }}</small>
+                <div class="col-md-6 mb-3">
+                    <div class="card expandable">
+                        <div class="card-header d-flex justify-content-between align-items-start">
+                            <h6 class="mb-0">{{ change.description[:50] }}{% if change.description|length > 50 %}...{% endif %}</h6>
+                            <button class="btn btn-sm btn-outline-secondary expand-btn">Expand</button>
+                        </div>
+                        <div class="card-body collapsed">
+                            <p>{{ change.description }}</p>
+                            <div class="metadata">
+                                <small class="text-muted">Created: {{ change.created_at }} | By: {{ change.agent_signature }}</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 {% endfor %}
             </div>

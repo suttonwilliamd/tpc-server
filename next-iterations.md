@@ -19,32 +19,32 @@
 
 ## Next 2-3 Features to Add
 
-### 1. Advanced User Interface
-- **Dedicated Creation Forms**: Modal forms for creating thoughts, plans, and changes directly from the web interface.
-- **Enhanced Detail Views**: Expandable cards with full content and relationship visualizations.
-- **Bulk Operations**: UI for performing bulk actions on multiple items.
+### 1. Advanced User Interface (Implemented)
+- **Dedicated Creation Forms**: Modal forms (#createThoughtModal etc.) in base.html for thoughts/plans/changes from web pages.
+- **Enhanced Detail Views**: Expandable cards in thoughts/plans/changes/plan_detail.html with metadata/relationships (lists; no graph viz).
+- **Bulk Operations**: Checkboxes and buttons (delete/export/assign) in list templates.
 
-### 2. Improved Authentication & Authorization
-- **JWT-based Authentication**: More secure token-based authentication for web users.
-- **Role-based Access Control**: Different permissions for agents vs. human users.
-- **API Key Management**: Web interface for generating and managing agent keys.
+### 2. Improved Authentication & Authorization (Pending)
+- **JWT-based Authentication**: Utils in auth.py; pending activation (uncomment imports, add /login /refresh routes in main.py).
+- **Role-based Access Control**: verify_jwt_and_role in auth.py; pending enable for agents/users/admins.
+- **API Key Management**: Models in main.py; pending routes/UI (api_keys.html removed; integrate into existing pages).
 
-### 3. Data Export & Integration
-- **Export Functionality**: CSV/JSON export of thoughts, plans, and changes.
-- **Webhook Support**: Configurable webhooks for external integrations.
-- **API Documentation**: Enhanced OpenAPI/Swagger documentation with examples.
+### 3. Data Export & Integration (Partial)
+- **Export Functionality**: Implemented bulk JSON/CSV export via /api/*bulk-export endpoints.
+- **Webhook Support**: Pending configurable webhooks.
+- **API Documentation**: OpenAPI at /api/docs (enhanced with custom schema in main.py).
 
 ## Technical Debt to Address
 
 ### High Priority
-1. **Database Migration**: Prepare for PostgreSQL migration with proper connection pooling.
-2. **Error Handling**: More robust error handling and logging throughout the application.
-3. **Code Organization**: Separate concerns into modules (auth, models, routes) rather than single main.py.
+1. **Database Migration**: Prepare for PostgreSQL (configurable DATABASE_URL; current SQLite ok).
+2. **Error Handling**: Enhance HTTP exceptions/tracebacks (current basic logging in main.py).
+3. **Code Organization**: Inline models/auth ok post-cleanup; consider separating routes if growth.
 
 ### Medium Priority
-1. **Testing Suite**: Add unit and integration tests for critical functionality.
-2. **Configuration Management**: Improve environment variable handling and configuration validation.
-3. **Frontend Framework**: Consider moving to a modern framework like Vue.js or React for better maintainability.
+1. **Testing Suite**: Add unit/integration tests for API/MCP/tools.
+2. **Configuration Management**: .env handling ok; add validation on startup.
+3. **Frontend Framework**: Vanilla JS sufficient; consider Vue/React for advanced UI if needed.
 
 ### Low Priority
 1. **Performance Optimization**: Database query optimization and indexing.
@@ -81,8 +81,8 @@
 - **Low Risk**: UI improvements are mostly frontend and can be rolled back easily.
 
 ## Timeline Estimate
-- **Iteration 2 (2 weeks)**: Advanced UI and improved auth
-- **Iteration 3 (3 weeks)**: Data export and integration features
-- **Iteration 4 (4 weeks)**: Performance optimization and technical debt address
+- **Iteration 2 (Completed)**: Advanced UI (modals/cards/bulk) implemented.
+- **Iteration 3 (Partial)**: Data export implemented; auth/integration pending (2 weeks).
+- **Iteration 4 (2 weeks)**: Performance/testing, technical debt.
 
 This plan provides a clear roadmap for evolving the TPC Server from MVP to a production-ready platform while addressing the most critical user needs and technical requirements.
