@@ -63,3 +63,32 @@ Future versions will add plans, retrieval, and more features without breaking v1
   - **Response**: 200 OK, full plan object.
   - **Errors**: 404 Not Found if plan ID does not exist.
   - **Notes**: Will be replaced by full list retrieval in v1.3. v1.0 /thoughts and v1.1 /plans endpoints remain unchanged.
+
+## v1.3 - Simple Retrieval
+
+### Features Implemented
+
+- **GET /thoughts**
+  - **Description**: Retrieves all thoughts as an array, sorted ascending by timestamp.
+  - **Response**: 200 OK, `[{ "id": number, "content": "string", "timestamp": "ISO string" }, ...]` (empty `[]` if none).
+  - **Notes**: Thoughts are loaded from `data/thoughts.json` and sorted by timestamp. No request body or parameters. Builds on v1.0 POST /thoughts.
+
+- **GET /plans**
+  - **Description**: Retrieves all plans as an array, sorted ascending by timestamp.
+  - **Response**: 200 OK, `[{ "id": number, "title": "string", "description": "string", "status": "string", "timestamp": "ISO string" }, ...]` (empty `[]` if none).
+  - **Notes**: Plans are loaded from `data/plans.json` and sorted by timestamp. No request body or parameters. Replaces temporary GET /plans/:id for public use; single retrieval remains internal for testing. Builds on v1.1 POST /plans and v1.2 PATCH /plans/:id.
+
+### Usage Instructions
+
+- Start the server: `node server.js` (runs on `http://localhost:3000`).
+
+- Retrieve all thoughts: `curl http://localhost:3000/thoughts`
+
+- Retrieve all plans: `curl http://localhost:3000/plans`
+
+### Notable Changes
+
+- Added simple retrieval APIs for thoughts and plans, including sorting by timestamp and handling empty responses.
+- No breaking changes to existing endpoints (v1.0-v1.2 functionality preserved).
+- All tests pass (21 total, including new integration tests for retrieval after create/update operations).
+- Persistence remains in JSON files (`data/thoughts.json`, `data/plans.json`).

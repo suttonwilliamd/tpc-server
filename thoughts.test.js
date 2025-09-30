@@ -67,4 +67,44 @@ describe('Thoughts API', () => {
     expect(getResponse.body[0].content).toBe('Duplicate thought');
     expect(getResponse.body[1].content).toBe('Duplicate thought');
   });
+
+  test('GET /thoughts returns empty array when no thoughts exist', async () => {
+    const response = await request(app)
+      .get('/thoughts')
+      .expect(200);
+
+    expect(response.body).toEqual([]);
+  });
+
+  test('GET /thoughts returns thoughts sorted chronologically ascending', async () => {
+    // Create thoughts with different timestamps (simulated by order)
+    await request(app)
+      .post('/thoughts')
+      .send({ content: 'First thought' })
+      .expect(201);
+
+    await request(app)
+      .post('/thoughts')
+      .send({ content: 'Second thought' })
+      .expect(201);
+
+    await request(app)
+      .post('/thoughts')
+      .send({ content: 'Third thought' })
+      .expect(201);
+
+    const response = await request(app)
+      .get('/thoughts')
+      .expect(200);
+
+    expect(response.body).toHaveLength(3);
+    expect(response.body[0].content).toBe('First thought');
+    expect(response.body[1].content).toBe('Second thought');
+    expect(response.body[2].content).toBe('Third thought');
+
+    // Verify timestamps are in ascending order
+    const timestamps = response.body.map(t => new Date(t.timestamp));
+    expect(timestamps[0] < timestamps[1]).toBe(true);
+    expect(timestamps[1] < timestamps[2]).toBe(true);
+  });
 });

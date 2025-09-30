@@ -7,6 +7,11 @@ const DATA_FILE = path.join(__dirname, 'data', 'thoughts.json');
 const PLANS_FILE = path.join(__dirname, 'data', 'plans.json');
 
 describe('Plans API', () => {
+  beforeAll(async () => {
+    await fs.writeFile(DATA_FILE, '[]');
+    await fs.writeFile(PLANS_FILE, '[]');
+  });
+
   beforeEach(async () => {
     await fs.writeFile(DATA_FILE, '[]');
     await fs.writeFile(PLANS_FILE, '[]');
@@ -166,5 +171,78 @@ describe('Plans API', () => {
       .expect(200);
 
     expect(getResponse.body.status).toBe(originalStatus);
+  });
+
+  test('GET /plans returns empty array when no plans exist', async () => {
+    await fs.writeFile(PLANS_FILE, '[]');
+    const response = await request(app)
+      .get('/plans')
+      .expect(200);
+  
+    expect(response.body).toEqual([]);
+  });
+
+  test('GET /plans returns plans sorted chronologically ascending', async () => {
+    await fs.writeFile(PLANS_FILE, '[]');
+    // Create plans with different timestamps (order implies ascending)
+    await request(app)
+      .post('/plans')
+      .send({ title: 'First Plan', description: 'First description' })
+      .expect(201);
+  
+    await request(app)
+      .post('/plans')
+      .send({ title: 'Second Plan', description: 'Second description' })
+      .expect(201);
+  
+    const response = await request(app)
+      .get('/plans')
+      .expect(200);
+  
+    expect(response.body).toHaveLength(2);
+    expect(response.body[0].title).toBe('First Plan');
+    expect(response.body[1].title).toBe('Second Plan');
+  
+    // Verify timestamps ascending
+    const timestamps = response.body.map(p => new Date(p.timestamp));
+    expect(timestamps[0] < timestamps[1]).toBe(true);
+  });
+
+  test('GET /plans integrates with POST and PATCH, returns sorted with updated status', async () => {
+    await fs.writeFile(PLANS_FILE, '[]');
+    // Create first plan
+    const firstResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Plan A', description: 'Desc A' })
+      .expect(201);
+  
+    // Create second plan
+    const secondResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Plan B', description: 'Desc B' })
+      .expect(201);
+  
+    // Update second plan status
+    await request(app)
+      .patch(`/plans/${secondResponse.body.id}`)
+      .send({ status: 'in_progress' })
+      .expect(200);
+  
+    // GET all plans
+    const getResponse = await request(app)
+      .get('/plans')
+      .expect(200);
+  
+    expect(getResponse.body).toHaveLength(2);
+    expect(getResponse.body[0].title).toBe('Plan A');
+    expect(getResponse.body[0].status).toBe('proposed');
+    expect(getResponse.body[1].title).toBe('Plan B');
+    expect(getResponse.body[1].status).toBe('in_progress');
+    expect(getResponse.body[1].description).toBe('Desc B');
+    expect(getResponse.body[1].timestamp).toBeDefined();
+  
+    // Timestamps ascending
+    const timestamps = getResponse.body.map(p => new Date(p.timestamp));
+    expect(timestamps[0] < timestamps[1]).toBe(true);
   });
 });
