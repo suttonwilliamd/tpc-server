@@ -210,6 +210,25 @@ app.get('/thoughts', async (req, res) => {
   }
 });
 
+// GET /context
+app.get('/context', async (req, res) => {
+  try {
+    const plans = await readPlans();
+    const incompletePlans = plans
+      .filter(p => p.status !== 'completed')
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    const thoughts = await readThoughts();
+    const sortedThoughts = thoughts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const last10Thoughts = sortedThoughts.slice(0, 10);
+
+    res.status(200).json({ incompletePlans, last10Thoughts });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

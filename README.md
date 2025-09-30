@@ -148,3 +148,70 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - Introduced changelog tracking for plans to log updates over time.
 - No breaking changes to existing endpoints (v1.0-v1.4 functionality preserved).
 - Builds on v1.4 with 29 passing tests, including new tests for append operations, multiple entries, 400/404 error handling, and integration with GET /plans.
+
+## v1.6 - Context Window
+
+### Features Implemented
+
+- New **GET /context** endpoint: Aggregates and returns a context window combining incomplete plans and recent thoughts.
+  - **Description**: Retrieves incomplete plans and the last 10 thoughts (or all if fewer than 10).
+  - **Response**: 200 OK, `{ "incompletePlans": [...], "last10Thoughts": [...] }`
+    - `incompletePlans`: Array of plans where `status !== 'completed'`, sorted ascending by `timestamp`. Empty `[]` if no incomplete plans.
+    - `last10Thoughts`: Last 10 thoughts (or all if <10), sorted descending by `timestamp`. Empty `[]` if no thoughts.
+  - **Example Response**:
+    ```
+    {
+      "incompletePlans": [
+        {
+          "id": 1,
+          "title": "Sample Plan",
+          "description": "Description",
+          "status": "proposed",
+          "timestamp": "2025-09-30T22:00:00.000Z",
+          "changelog": []
+        }
+      ],
+      "last10Thoughts": [
+        {
+          "id": 5,
+          "content": "Recent thought",
+          "timestamp": "2025-09-30T23:00:00.000Z",
+          "plan_id": null
+        },
+        {
+          "id": 4,
+          "content": "Another recent thought",
+          "timestamp": "2025-09-30T22:50:00.000Z",
+          "plan_id": "1"
+        }
+      ]
+    }
+    ```
+  - **Logic**:
+    - Aggregates from `data/plans.json` and `data/thoughts.json`.
+    - Filtering: `incompletePlans` excludes plans with `status: 'completed'`.
+    - Sorting: `incompletePlans` ascending by `timestamp`; `last10Thoughts` descending by `timestamp`.
+    - Limiting: `last10Thoughts` limited to 10 most recent.
+  - **Edge Cases**:
+    - Empty JSON files: Returns `{ "incompletePlans": [], "last10Thoughts": [] }`.
+    - No incomplete plans: `incompletePlans` is `[]`.
+    - Fewer than 10 thoughts: Returns all thoughts.
+    - All plans completed: `incompletePlans` is `[]`.
+    - No thoughts: `last10Thoughts` is `[]`.
+  - **Notes**: No request body or parameters. Builds on v1.3 retrieval logic without modifying existing endpoints.
+
+### Usage Instructions
+
+- Start the server: `node server.js` (runs on `http://localhost:3000`).
+
+- Retrieve context window: `curl http://localhost:3000/context`
+
+- Notes:
+  - `incompletePlans` filters on `status !== 'completed'` and sorts ascending by `timestamp`.
+  - `last10Thoughts` selects the 10 most recent thoughts (descending by `timestamp`), or all if fewer.
+
+### Notable Changes
+
+- Added context aggregation endpoint (`GET /context`) for retrieving incomplete plans and recent thoughts in a single response.
+- No breaking changes to existing endpoints (v1.0-v1.5 functionality preserved).
+- Builds on v1.5 with 32 passing tests, including a separate `v1.6.test.js` (3 tests: response structure, edge cases like empty data, and integration with plans/thoughts aggregation).

@@ -120,7 +120,7 @@ GET /plans/1
 Expect: {changelog: [array of changes], ...}
 ```
 
-## **v1.6 - Context Window Simulation**
+[x] ## **v1.6 - Context Window Simulation**
 
 **Tests:**
 ```javascript
