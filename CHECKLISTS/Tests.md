@@ -22,7 +22,7 @@ Body: {}
 Expect: 400 Bad Request
 ```
 
-## **v1.1 - Basic Plan Creator**
+[x] ## **v1.1 - Basic Plan Creator**
 
 **Tests:**
 ```javascript

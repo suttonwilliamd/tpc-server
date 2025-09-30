@@ -19,13 +19,27 @@ A Node.js/Express API for AI-human collaboration, starting with JSON file storag
   - **Persistence**: Thoughts are appended to `data/thoughts.json` with auto-incrementing IDs starting from 1.
   - **Notes**: Duplicate content is allowed. No retrieval endpoint in v1.0 (internal testing uses temporary GET).
 
+## v1.1 - Basic Plan Creator
+
+### Endpoints
+- **POST /plans**
+  - **Description**: Creates a new plan entry.
+  - **Request Body**: `{ "title": "string" (required, non-empty), "description": "string" (required, non-empty) }`
+  - **Response**: 201 Created, `{ "id": number, "title": "string", "description": "string", "status": "proposed" }`
+  - **Errors**:
+    - 400 Bad Request if title or description is missing or empty.
+  - **Persistence**: Plans are appended to `data/plans.json` with auto-incrementing IDs starting from 1 and a timestamp.
+  - **Notes**: Duplicate titles are allowed. Status is set to "proposed". No retrieval endpoint in v1.1 (internal testing uses fs reads). v1.0 /thoughts endpoint remains unchanged.
+
 ### Testing
 Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 ### Project Structure
 - `server.js`: Main Express server.
 - `data/thoughts.json`: JSON storage for thoughts (initially empty array).
+- `data/plans.json`: JSON storage for plans (initially empty array).
 - `thoughts.test.js`: Unit tests using Supertest.
+- `plans.test.js`: Unit tests for plans endpoint using Supertest.
 - `package.json`: Dependencies and scripts.
 
 Future versions will add plans, retrieval, and more features without breaking v1.0 compatibility.
