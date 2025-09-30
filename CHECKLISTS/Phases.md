@@ -13,7 +13,7 @@
 - Stores plans in separate JSON file
 - Plan: `id, title, status: "proposed"`
 
-**v1.2 - Plan Status Updater**
+[x] **v1.2 - Plan Status Updater**
 - `PATCH /plans/:id` to update status
 - Can mark plans as `in_progress` or `completed`
 

@@ -65,26 +65,68 @@ res.status(500).json({ error: 'Internal server error' });
 
 // POST /plans
 app.post('/plans', async (req, res) => {
-const { title, description } = req.body;
+  const { title, description } = req.body;
 
-if (!title || title.trim() === '' || !description || description.trim() === '') {
-return res.status(400).json({ error: 'Title and description are required and cannot be empty' });
-}
+  if (!title || title.trim() === '' || !description || description.trim() === '') {
+    return res.status(400).json({ error: 'Title and description are required and cannot be empty' });
+  }
 
-try {
-const plans = await readPlans();
-const id = plans.length + 1;
-const timestamp = new Date().toISOString();
-const newPlan = { id, title, description, status: "proposed", timestamp };
+  try {
+    const plans = await readPlans();
+    const id = plans.length + 1;
+    const timestamp = new Date().toISOString();
+    const newPlan = { id, title, description, status: "proposed", timestamp };
 
-plans.push(newPlan);
-await writePlans(plans);
+    plans.push(newPlan);
+    await writePlans(plans);
 
-res.status(201).json({ id, title, description, status: "proposed" });
-} catch (error) {
-console.error(error);
-res.status(500).json({ error: 'Internal server error' });
-}
+    res.status(201).json({ id, title, description, status: "proposed" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Temporary GET /plans/:id for testing
+app.get('/plans/:id', async (req, res) => {
+  try {
+    const plans = await readPlans();
+    const plan = plans.find(p => p.id === parseInt(req.params.id));
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+    res.status(200).json(plan);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /plans/:id - Update status
+app.patch('/plans/:id', async (req, res) => {
+  const { status } = req.body;
+  const validStatuses = ['proposed', 'in_progress', 'completed'];
+  if (status && !validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be one of: proposed, in_progress, completed' });
+  }
+
+  try {
+    const plans = await readPlans();
+    const index = plans.findIndex(p => p.id === parseInt(req.params.id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    if (status) {
+      plans[index].status = status;
+    }
+
+    await writePlans(plans);
+    res.status(200).json({ status: plans[index].status });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Temporary GET /thoughts for testing persistence

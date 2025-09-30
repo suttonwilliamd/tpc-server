@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "id": 1,
+    "title": "Test Plan",
+    "description": "Test description",
+    "status": "proposed",
+    "timestamp": "2025-09-30T18:50:30.565Z"
+  }
+]
