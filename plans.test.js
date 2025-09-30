@@ -93,4 +93,78 @@ describe('Plans API', () => {
     expect(getResponse.body).toHaveLength(1);
     expect(getResponse.body[0]).toEqual(response.body);
   });
+
+  test('PATCH /plans/:id updates status successfully', async () => {
+    // Create a plan first
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test description' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+
+    // Update status
+    const updateResponse = await request(app)
+      .patch(`/plans/${planId}`)
+      .send({ status: 'in_progress' })
+      .expect(200);
+
+    expect(updateResponse.body).toEqual({ status: 'in_progress' });
+
+    // Verify persistence with GET
+    const getResponse = await request(app)
+      .get(`/plans/${planId}`)
+      .expect(200);
+
+    expect(getResponse.body.status).toBe('in_progress');
+    expect(getResponse.body.id).toBe(planId);
+  });
+
+  test('PATCH /plans/:id with invalid status returns 400', async () => {
+    // Create a plan
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test description' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+
+    await request(app)
+      .patch(`/plans/${planId}`)
+      .send({ status: 'invalid_status' })
+      .expect(400);
+  });
+
+  test('PATCH /plans/:id for non-existent plan returns 404', async () => {
+    await request(app)
+      .patch('/plans/999')
+      .send({ status: 'completed' })
+      .expect(404);
+  });
+
+  test('PATCH /plans/:id without status does nothing but succeeds', async () => {
+    // Create a plan
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test description' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+    const originalStatus = createResponse.body.status;
+
+    // PATCH without status
+    const updateResponse = await request(app)
+      .patch(`/plans/${planId}`)
+      .send({})
+      .expect(200);
+
+    expect(updateResponse.body.status).toBe(originalStatus);
+
+    // Verify no change
+    const getResponse = await request(app)
+      .get(`/plans/${planId}`)
+      .expect(200);
+
+    expect(getResponse.body.status).toBe(originalStatus);
+  });
 });

@@ -43,3 +43,23 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - `package.json`: Dependencies and scripts.
 
 Future versions will add plans, retrieval, and more features without breaking v1.0 compatibility.
+
+## v1.2 - Plan Status Updater
+
+### Endpoints
+
+- **PATCH /plans/:id**
+  - **Description**: Updates the status of an existing plan.
+  - **Request Body**: `{ "status": "in_progress" | "completed" }` (optional; if omitted, no change)
+  - **Response**: 200 OK, `{ "status": "updated_status" }`
+  - **Errors**:
+    - 400 Bad Request if status is invalid (must be "proposed", "in_progress", or "completed").
+    - 404 Not Found if plan ID does not exist.
+  - **Persistence**: Updates the status in `data/plans.json`.
+  - **Notes**: Status defaults to "proposed" on creation. This endpoint only updates status; other fields unchanged.
+
+- **GET /plans/:id** (Temporary for testing)
+  - **Description**: Retrieves a single plan by ID.
+  - **Response**: 200 OK, full plan object.
+  - **Errors**: 404 Not Found if plan ID does not exist.
+  - **Notes**: Will be replaced by full list retrieval in v1.3. v1.0 /thoughts and v1.1 /plans endpoints remain unchanged.

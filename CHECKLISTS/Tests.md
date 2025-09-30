@@ -41,7 +41,7 @@ Body: {"description": "No title"}
 Expect: 400 Bad Request
 ```
 
-## **v1.2 - Plan Status Updater**
+[x] ## **v1.2 - Plan Status Updater**
 
 **Tests:**
 ```javascript
