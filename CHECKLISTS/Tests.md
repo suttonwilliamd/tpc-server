@@ -1,4 +1,4 @@
-## **v1.0 - Basic Thought Logger**
+[x] ## **v1.0 - Basic Thought Logger**
 
 **Tests:**
 ```javascript
