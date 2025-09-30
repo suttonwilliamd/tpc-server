@@ -341,3 +341,116 @@ test('GET /plans/:id/thoughts excludes thoughts with different plan_id', async (
   expect(thoughtsResponse.body).toEqual([]);
 });
 });
+
+describe('Plan Changelog', () => {
+  test('PATCH /plans/:id/changelog appends entry with timestamp and returns updated plan', async () => {
+    // Create plan
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test desc' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+
+    // Append changelog
+    const entry = 'Initial entry';
+    const updateResponse = await request(app)
+      .patch(`/plans/${planId}/changelog`)
+      .send({ entry })
+      .expect(200);
+
+    expect(updateResponse.body.changelog).toHaveLength(1);
+    expect(updateResponse.body.changelog[0].entry).toBe(entry);
+    expect(updateResponse.body.changelog[0].timestamp).toBeDefined();
+    expect(updateResponse.body.id).toBe(planId);
+
+    // Verify full plan returned
+    expect(updateResponse.body.title).toBe('Test Plan');
+  });
+
+  test('Multiple appends to changelog accumulate in order', async () => {
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test desc' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+
+    const entries = ['First entry', 'Second entry'];
+    let timestamps = [];
+
+    // First append
+    const firstResponse = await request(app)
+      .patch(`/plans/${planId}/changelog`)
+      .send({ entry: entries[0] })
+      .expect(200);
+
+    timestamps.push(firstResponse.body.changelog[0].timestamp);
+
+    // Second append
+    const secondResponse = await request(app)
+      .patch(`/plans/${planId}/changelog`)
+      .send({ entry: entries[1] })
+      .expect(200);
+
+    timestamps.push(secondResponse.body.changelog[1].timestamp);
+
+    expect(secondResponse.body.changelog).toHaveLength(2);
+    expect(secondResponse.body.changelog[0].entry).toBe(entries[0]);
+    expect(secondResponse.body.changelog[1].entry).toBe(entries[1]);
+    expect(new Date(timestamps[0]) < new Date(timestamps[1])).toBe(true);
+  });
+
+  test('PATCH /plans/:id/changelog for non-existent plan returns 404', async () => {
+    await request(app)
+      .patch('/plans/999/changelog')
+      .send({ entry: 'Test entry' })
+      .expect(404);
+  });
+
+  test('PATCH /plans/:id/changelog with empty entry returns 400', async () => {
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test desc' })
+      .expect(201);
+
+    const planId = createResponse.body.id;
+
+    await request(app)
+      .patch(`/plans/${planId}/changelog`)
+      .send({ entry: '' })
+      .expect(400);
+  });
+
+  test('Integration: Changelog appears in GET /plans and does not affect GET /plans/:id/thoughts', async () => {
+    // Create plan
+    const createResponse = await request(app)
+      .post('/plans')
+      .send({ title: 'Test Plan', description: 'Test desc' })
+      .expect(201);
+
+    const planId = createResponse.body.id.toString();
+
+    // Append changelog
+    await request(app)
+      .patch(`/plans/${planId}/changelog`)
+      .send({ entry: 'Test changelog entry' })
+      .expect(200);
+
+    // GET /plans
+    const plansResponse = await request(app)
+      .get('/plans')
+      .expect(200);
+
+    const plan = plansResponse.body.find(p => p.id === parseInt(planId));
+    expect(plan.changelog).toHaveLength(1);
+    expect(plan.changelog[0].entry).toBe('Test changelog entry');
+
+    // GET /plans/:id/thoughts (should be empty, unaffected)
+    const thoughtsResponse = await request(app)
+      .get(`/plans/${planId}/thoughts`)
+      .expect(200);
+
+    expect(thoughtsResponse.body).toEqual([]);
+  });
+});

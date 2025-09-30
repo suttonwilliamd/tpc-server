@@ -80,7 +80,7 @@ app.post('/plans', async (req, res) => {
     const plans = await readPlans();
     const id = plans.length + 1;
     const timestamp = new Date().toISOString();
-    const newPlan = { id, title, description, status: "proposed", timestamp };
+    const newPlan = { id, title, description, status: "proposed", timestamp, changelog: [] };
 
     plans.push(newPlan);
     await writePlans(plans);
@@ -128,6 +128,36 @@ app.patch('/plans/:id', async (req, res) => {
 
     await writePlans(plans);
     res.status(200).json({ status: plans[index].status });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /plans/:id/changelog
+app.patch('/plans/:id/changelog', async (req, res) => {
+  const { entry } = req.body;
+
+  if (!entry || entry.trim() === '') {
+    return res.status(400).json({ error: 'Entry is required and cannot be empty' });
+  }
+
+  try {
+    const plans = await readPlans();
+    const index = plans.findIndex(p => p.id === parseInt(req.params.id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    if (!plans[index].changelog) {
+      plans[index].changelog = [];
+    }
+
+    const timestamp = new Date().toISOString();
+    plans[index].changelog.push({ timestamp, entry: entry.trim() });
+
+    await writePlans(plans);
+    res.status(200).json(plans[index]);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

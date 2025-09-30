@@ -101,7 +101,7 @@ Expect: 200 OK, []
 // Test 4: Thoughts without plan_id work normally
 ```
 
-## **v1.5 - Plan Changelog**
+[x] ## **v1.5 - Plan Changelog**
 
 **Tests:**
 ```javascript

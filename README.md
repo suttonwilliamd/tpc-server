@@ -116,3 +116,35 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - Enhanced linking between plans and thoughts to support organized retrieval and association.
 - No breaking changes to existing endpoints (v1.0-v1.3 functionality preserved).
 - Builds on v1.3 with 24 passing tests, including new integration tests for linking, filtering, and edge cases (e.g., empty results, invalid IDs).
+
+## v1.5 - Plan Changelog
+
+### Features Implemented
+
+- Added `changelog` array to the plan schema, initialized as an empty array. Each entry is an object with `timestamp` (ISO string) and `entry` (string).
+- New **PATCH /plans/:id/changelog** endpoint: Appends a new timestamped entry to the plan's changelog. 
+  - **Request Body**: `{ "entry": "string" }` (required, non-empty).
+  - **Response**: 200 OK, the full updated plan object (including the new changelog entry).
+  - **Errors**:
+    - 400 Bad Request if `entry` is missing or empty.
+    - 404 Not Found if the plan ID does not exist.
+  - **Behavior**: If the plan does not exist, it is not created (unlike POST /plans). The changelog is initialized as `[]` if absent. Builds on existing plan retrieval and update logic.
+  - **Persistence**: Updates are saved to `data/plans.json`.
+
+### Usage Instructions
+
+- Append to a plan's changelog:  
+  `curl -X PATCH http://localhost:3000/plans/123/changelog -H "Content-Type: application/json" -d '{"entry": "New update"}'`
+  
+- Response includes the full updated plan, e.g., `{ "id": 123, ..., "changelog": [{ "timestamp": "2025-09-30T22:56:00.000Z", "entry": "New update" }] }`.
+
+- Edge cases:
+  - Empty entry: Returns 400 Bad Request.
+  - Invalid plan ID: Returns 404 Not Found.
+  - Multiple appends: Each adds a new timestamped entry to the array.
+
+### Notable Changes
+
+- Introduced changelog tracking for plans to log updates over time.
+- No breaking changes to existing endpoints (v1.0-v1.4 functionality preserved).
+- Builds on v1.4 with 29 passing tests, including new tests for append operations, multiple entries, 400/404 error handling, and integration with GET /plans.
