@@ -14,7 +14,7 @@ async function readThoughts() {
     const data = await fs.readFile(DATA_FILE, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) {
       return [];
     }
     throw error;
@@ -30,7 +30,7 @@ async function readPlans() {
     const data = await fs.readFile(PLANS_FILE, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) {
       return [];
     }
     throw error;
@@ -129,10 +129,23 @@ app.patch('/plans/:id', async (req, res) => {
   }
 });
 
+// GET /plans
+app.get('/plans', async (req, res) => {
+  try {
+    const plans = await readPlans();
+    plans.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    res.status(200).json(plans);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Temporary GET /thoughts for testing persistence
 app.get('/thoughts', async (req, res) => {
   try {
     const thoughts = await readThoughts();
+    thoughts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     res.status(200).json(thoughts);
   } catch (error) {
     console.error(error);

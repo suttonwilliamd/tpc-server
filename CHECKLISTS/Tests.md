@@ -62,21 +62,21 @@ Expect: 400 Bad Request
 // Test 4: Non-existent plan returns 404
 ```
 
-## **v1.3 - Simple Retrieval**
+[x] ## **v1.3 - Simple Retrieval**
 
 **Tests:**
 ```javascript
-// Test 1: GET /thoughts returns all thoughts
+[x] // Test 1: GET /thoughts returns all thoughts
 Create 3 thoughts, then:
 GET /thoughts
 Expect: 200 OK, array with 3 thoughts in chronological order
 
-// Test 2: GET /plans returns all plans
+[x] // Test 2: GET /plans returns all plans
 Create 2 plans, then:
 GET /plans
 Expect: 200 OK, array with 2 plans
 
-// Test 3: Empty arrays when no data
+[x] // Test 3: Empty arrays when no data
 GET /thoughts (with empty DB)
 Expect: 200 OK, []
 ```
