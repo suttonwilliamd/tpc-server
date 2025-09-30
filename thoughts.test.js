@@ -107,4 +107,45 @@ describe('Thoughts API', () => {
     expect(timestamps[0] < timestamps[1]).toBe(true);
     expect(timestamps[1] < timestamps[2]).toBe(true);
   });
+
+  test('POST /thoughts with plan_id includes it in response and persists', async () => {
+    const response = await request(app)
+      .post('/thoughts')
+      .send({ content: 'Thought with plan', plan_id: '1' })
+      .expect(201);
+
+    expect(response.body).toHaveProperty('id', '1');
+    expect(response.body).toHaveProperty('content', 'Thought with plan');
+    expect(response.body).toHaveProperty('plan_id', '1');
+    expect(response.body).toHaveProperty('timestamp');
+
+    // Verify persistence
+    const getResponse = await request(app)
+      .get('/thoughts')
+      .expect(200);
+
+    expect(getResponse.body).toHaveLength(1);
+    expect(getResponse.body[0]).toEqual(response.body);
+  });
+
+  test('POST /thoughts without plan_id does not include it', async () => {
+    const response = await request(app)
+      .post('/thoughts')
+      .send({ content: 'Thought without plan' })
+      .expect(201);
+
+    expect(response.body).toHaveProperty('id', '1');
+    expect(response.body).toHaveProperty('content', 'Thought without plan');
+    expect(response.body).not.toHaveProperty('plan_id');
+    expect(response.body).toHaveProperty('timestamp');
+
+    // Verify persistence
+    const getResponse = await request(app)
+      .get('/thoughts')
+      .expect(200);
+
+    expect(getResponse.body).toHaveLength(1);
+    expect(getResponse.body[0]).toEqual(response.body);
+    expect(getResponse.body[0]).not.toHaveProperty('plan_id');
+  });
 });

@@ -92,3 +92,27 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - No breaking changes to existing endpoints (v1.0-v1.2 functionality preserved).
 - All tests pass (21 total, including new integration tests for retrieval after create/update operations).
 - Persistence remains in JSON files (`data/thoughts.json`, `data/plans.json`).
+
+## v1.4 - Thought-Plan Linking
+
+### Features Implemented
+
+- Added optional `plan_id` (string) field to the thought schema. This allows thoughts to be associated with a specific plan.
+- The `POST /thoughts` endpoint now accepts an optional `plan_id` in the request body and stores it if provided. If not provided, the field is omitted.
+- New `GET /plans/:id/thoughts` endpoint: Retrieves all thoughts linked to the specified plan ID, filtered by `plan_id`, sorted ascending by timestamp. Returns an empty array `[]` for a valid plan ID with no linked thoughts. Returns 404 Not Found if the plan ID does not exist.
+
+### Usage Instructions
+
+- Create a thought linked to a plan:  
+  `curl -X POST http://localhost:3000/thoughts -H "Content-Type: application/json" -d '{"content": "My linked thought", "plan_id": "123"}'`
+
+- Retrieve thoughts for a specific plan:  
+  `curl http://localhost:3000/plans/123/thoughts`
+
+- Note: For a valid plan ID with no linked thoughts, the response is `[]`. If the plan ID does not exist, the endpoint returns 404 Not Found.
+
+### Notable Changes
+
+- Enhanced linking between plans and thoughts to support organized retrieval and association.
+- No breaking changes to existing endpoints (v1.0-v1.3 functionality preserved).
+- Builds on v1.3 with 24 passing tests, including new integration tests for linking, filtering, and edge cases (e.g., empty results, invalid IDs).

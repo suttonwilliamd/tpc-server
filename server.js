@@ -42,7 +42,7 @@ async function writePlans(plans) {
 }
 // POST /thoughts
 app.post('/thoughts', async (req, res) => {
-  const { content } = req.body;
+  const { content, plan_id } = req.body;
 
   if (!content || content.trim() === '') {
     return res.status(400).json({ error: 'Content is required and cannot be empty' });
@@ -52,15 +52,20 @@ app.post('/thoughts', async (req, res) => {
     const thoughts = await readThoughts();
     const id = thoughts.length + 1;
     const timestamp = new Date().toISOString();
-    const newThought = { id: id.toString(), content, timestamp };
+    const newThought = {
+      id: id.toString(),
+      content,
+      timestamp,
+      ...(plan_id && { plan_id })
+    };
 
     thoughts.push(newThought);
     await writeThoughts(thoughts);
-res.status(201).json(newThought);
-} catch (error) {
-console.error(error);
-res.status(500).json({ error: 'Internal server error' });
-}
+    res.status(201).json(newThought);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /plans
@@ -130,11 +135,33 @@ app.patch('/plans/:id', async (req, res) => {
 });
 
 // GET /plans
+// GET /plans
 app.get('/plans', async (req, res) => {
   try {
     const plans = await readPlans();
     plans.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     res.status(200).json(plans);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /plans/:id/thoughts
+app.get('/plans/:id/thoughts', async (req, res) => {
+  try {
+    const plans = await readPlans();
+    const plan = plans.find(p => p.id === parseInt(req.params.id));
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const thoughts = await readThoughts();
+    const linkedThoughts = thoughts
+      .filter(t => t.plan_id === req.params.id)
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    res.status(200).json(linkedThoughts);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
