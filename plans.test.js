@@ -232,17 +232,112 @@ describe('Plans API', () => {
     const getResponse = await request(app)
       .get('/plans')
       .expect(200);
-  
-    expect(getResponse.body).toHaveLength(2);
-    expect(getResponse.body[0].title).toBe('Plan A');
-    expect(getResponse.body[0].status).toBe('proposed');
-    expect(getResponse.body[1].title).toBe('Plan B');
-    expect(getResponse.body[1].status).toBe('in_progress');
-    expect(getResponse.body[1].description).toBe('Desc B');
-    expect(getResponse.body[1].timestamp).toBeDefined();
-  
-    // Timestamps ascending
-    const timestamps = getResponse.body.map(p => new Date(p.timestamp));
-    expect(timestamps[0] < timestamps[1]).toBe(true);
-  });
+  expect(getResponse.body).toHaveLength(2);
+  expect(getResponse.body[0].title).toBe('Plan A');
+  expect(getResponse.body[0].status).toBe('proposed');
+  expect(getResponse.body[1].title).toBe('Plan B');
+  expect(getResponse.body[1].status).toBe('in_progress');
+  expect(getResponse.body[1].description).toBe('Desc B');
+  expect(getResponse.body[1].timestamp).toBeDefined();
+
+  // Timestamps ascending
+  const timestamps = getResponse.body.map(p => new Date(p.timestamp));
+  expect(timestamps[0] < timestamps[1]).toBe(true);
+});
+});
+
+describe('Plan Thoughts Linking', () => {
+test('GET /plans/:id/thoughts returns linked thoughts sorted by timestamp', async () => {
+  // Create plan
+  const planResponse = await request(app)
+    .post('/plans')
+    .send({ title: 'Test Plan', description: 'Test desc' })
+    .expect(201);
+
+  const planId = planResponse.body.id.toString();
+
+  // Create two thoughts linked to plan
+  await request(app)
+    .post('/thoughts')
+    .send({ content: 'First linked thought', plan_id: planId })
+    .expect(201);
+
+  const secondThought = await request(app)
+    .post('/thoughts')
+    .send({ content: 'Second linked thought', plan_id: planId })
+    .expect(201);
+
+  // GET linked thoughts
+  const thoughtsResponse = await request(app)
+    .get(`/plans/${planId}/thoughts`)
+    .expect(200);
+
+  expect(thoughtsResponse.body).toHaveLength(2);
+  expect(thoughtsResponse.body[0].content).toBe('First linked thought');
+  expect(thoughtsResponse.body[1].content).toBe('Second linked thought');
+
+  // Verify timestamps ascending
+  const timestamps = thoughtsResponse.body.map(t => new Date(t.timestamp));
+  expect(timestamps[0] < timestamps[1]).toBe(true);
+});
+
+test('GET /plans/:id/thoughts returns empty array if no linked thoughts', async () => {
+  // Create plan
+  const planResponse = await request(app)
+    .post('/plans')
+    .send({ title: 'Test Plan', description: 'Test desc' })
+    .expect(201);
+
+  const planId = planResponse.body.id.toString();
+
+  // Create a thought without plan_id
+  await request(app)
+    .post('/thoughts')
+    .send({ content: 'Unlinked thought' })
+    .expect(201);
+
+  // GET linked thoughts
+  const thoughtsResponse = await request(app)
+    .get(`/plans/${planId}/thoughts`)
+    .expect(200);
+
+  expect(thoughtsResponse.body).toEqual([]);
+});
+
+test('GET /plans/:id/thoughts returns 404 for non-existent plan', async () => {
+  await request(app)
+    .get('/plans/999/thoughts')
+    .expect(404);
+});
+
+test('GET /plans/:id/thoughts excludes thoughts with different plan_id', async () => {
+  // Create plan 1
+  const plan1Response = await request(app)
+    .post('/plans')
+    .send({ title: 'Plan 1', description: 'Desc 1' })
+    .expect(201);
+
+  const plan1Id = plan1Response.body.id.toString();
+
+  // Create plan 2
+  const plan2Response = await request(app)
+    .post('/plans')
+    .send({ title: 'Plan 2', description: 'Desc 2' })
+    .expect(201);
+
+  const plan2Id = plan2Response.body.id.toString();
+
+  // Create thought for plan 2
+  await request(app)
+    .post('/thoughts')
+    .send({ content: 'Thought for plan 2', plan_id: plan2Id })
+    .expect(201);
+
+  // GET for plan 1
+  const thoughtsResponse = await request(app)
+    .get(`/plans/${plan1Id}/thoughts`)
+    .expect(200);
+
+  expect(thoughtsResponse.body).toEqual([]);
+});
 });

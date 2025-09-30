@@ -81,7 +81,7 @@ GET /thoughts (with empty DB)
 Expect: 200 OK, []
 ```
 
-## **v1.4 - Thought-Plan Linking**
+[x] ## **v1.4 - Thought-Plan Linking**
 
 **Tests:**
 ```javascript
