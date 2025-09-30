@@ -5,6 +5,7 @@ const path = require('path');
 const app = express();
 const PORT = 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'thoughts.json');
+const PLANS_FILE = path.join(__dirname, 'data', 'plans.json');
 
 app.use(express.json());
 
@@ -24,6 +25,21 @@ async function writeThoughts(thoughts) {
   await fs.writeFile(DATA_FILE, JSON.stringify(thoughts, null, 2));
 }
 
+async function readPlans() {
+  try {
+    const data = await fs.readFile(PLANS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function writePlans(plans) {
+  await fs.writeFile(PLANS_FILE, JSON.stringify(plans, null, 2));
+}
 // POST /thoughts
 app.post('/thoughts', async (req, res) => {
   const { content } = req.body;
@@ -40,12 +56,35 @@ app.post('/thoughts', async (req, res) => {
 
     thoughts.push(newThought);
     await writeThoughts(thoughts);
+res.status(201).json(newThought);
+} catch (error) {
+console.error(error);
+res.status(500).json({ error: 'Internal server error' });
+}
+});
 
-    res.status(201).json(newThought);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+// POST /plans
+app.post('/plans', async (req, res) => {
+const { title, description } = req.body;
+
+if (!title || title.trim() === '' || !description || description.trim() === '') {
+return res.status(400).json({ error: 'Title and description are required and cannot be empty' });
+}
+
+try {
+const plans = await readPlans();
+const id = plans.length + 1;
+const timestamp = new Date().toISOString();
+const newPlan = { id, title, description, status: "proposed", timestamp };
+
+plans.push(newPlan);
+await writePlans(plans);
+
+res.status(201).json({ id, title, description, status: "proposed" });
+} catch (error) {
+console.error(error);
+res.status(500).json({ error: 'Internal server error' });
+}
 });
 
 // Temporary GET /thoughts for testing persistence
