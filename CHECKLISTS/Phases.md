@@ -17,8 +17,8 @@
 - `PATCH /plans/:id` to update status
 - Can mark plans as `in_progress` or `completed`
 
-**v1.3 - Simple Retrieval**
-- `GET /thoughts` and `GET /plans` 
+[x] **v1.3 - Simple Retrieval**
+- `GET /thoughts` and `GET /plans`
 - Returns all entries (no filtering yet)
 
 ### **Linking Phase**

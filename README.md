@@ -46,6 +46,10 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - GET /plans: 200 array sorted asc.
 - Test coverage: v1.3.test.js covers GET retrieval (empty, after create/update, multiple sorted, persistence/integration), regressions.
 
+### Usage
+- Retrieve all thoughts: `curl http://localhost:3000/thoughts`
+- Retrieve all plans: `curl http://localhost:3000/plans`
+
 ## v1.4 - Thought-Plan Linking
 
 - Optional plan_id in thoughts. Retrieve linked thoughts per plan.
