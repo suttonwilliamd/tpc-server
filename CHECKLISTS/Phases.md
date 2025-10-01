@@ -63,7 +63,7 @@
 - Simple Express server serving basic HTML + fetch API
 - Can view data through web interface
 
-**v2.2 - Plan Detail Pages**
+[x] **v2.2 - Plan Detail Pages**
 - Click a plan to see its full description and changelog
 - See linked thoughts
 
