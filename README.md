@@ -214,40 +214,16 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 ## v1.9 - Timestamp Queries
 
-### Features Implemented
+### Features
 
-- Updated **GET /plans** endpoint to support optional `?since=ISO string` query parameter for timestamp-based filtering.
-  - **Description**: Filters plans where `timestamp >=` the parsed ISO date (if valid). Returns all plans if no parameter or invalid date provided. Results are always sorted ascending by `timestamp`. Empty array `[]` if no matches.
-  - **Response**: 200 OK, filtered array of plans (empty `[]` if no matches).
-  - **Notes**: Builds on v1.3 and v1.8 retrieval/filtering. Invalid dates (e.g., malformed ISO) or future dates (no matches) return all plans. No request body.
+- Timestamp queries: Optional `?since=number` (Unix milliseconds timestamp) on `/plans` and `/thoughts` filters items created >= the timestamp, sorted ascending by creation time. Combines with prior filters (`?status` for plans, `?limit` for thoughts). Invalid or missing `?since` returns all items. Empty array `[]` if no matches. Status 200.
 
-- Updated **GET /thoughts** endpoint to support optional `?since=ISO string` query parameter for timestamp-based filtering.
-  - **Description**: Filters thoughts where `timestamp >=` the parsed ISO date (if valid). Returns all thoughts if no parameter or invalid date provided. Results are always sorted ascending by `timestamp`. Empty array `[]` if no matches.
-  - **Response**: 200 OK, filtered array of thoughts (empty `[]` if no matches).
-  - **Notes**: Builds on v1.3 and v1.8 retrieval/limiting. Invalid dates or future dates (no matches) return all thoughts. No request body.
+### Usage
 
-- Parameter combinations:
-  - For plans: `?since` applied first (timestamp filter), then `?status` (if provided), then sort ascending by `timestamp`.
-  - For thoughts: `?since` applied first (timestamp filter), then `?limit` (if provided), then sort ascending by `timestamp`.
-  - Multiple params can be combined (e.g., `?since=...&status=...` for plans); filters applied in order: since, then status/limit, then sort. Invalid params ignored individually.
+- Retrieve plans since timestamp: `curl "http://localhost:3000/plans?since=1727740000000"`
+- Retrieve thoughts since timestamp, limited to 5: `curl "http://localhost:3000/thoughts?since=1727740000000&limit=5"`
+- Retrieve proposed plans since timestamp: `curl "http://localhost:3000/plans?since=1727740000000&status=proposed"`
 
-- All other endpoints (v1.0-v1.8) remain unchanged.
-- Added separate `v1.9.test.js` file with 11 targeted tests covering timestamp filtering, combinations with existing params, edge cases (e.g., invalid dates, future dates, no matches), and integration; full test suite passes (73 tests total).
+- Notes: For plans, filters on `created_at` (millis) and sorts by `created_at ASC`. For thoughts, filters on `timestamp` (ISO) and sorts by `timestamp ASC`. Invalid `?since` (non-number) ignored. Future timestamps or no matches return `[]`. Backward compatible with prior endpoints.
 
-### Usage Instructions
-
-- Start the server: `node server.js` (runs on `http://localhost:3000`).
-
-- Retrieve plans since a specific date: `curl "http://localhost:3000/plans?since=2023-01-01T00:00:00.000Z"`
-
-- Retrieve thoughts since a specific date, limited to 5: `curl "http://localhost:3000/thoughts?since=2023-01-01T00:00:00.000Z&limit=5"`
-
-- Retrieve in-progress plans since a date: `curl "http://localhost:3000/plans?since=2023-01-01T00:00:00.000Z&status=in_progress"`
-
-- Notes: Invalid date (e.g., `?since=invalid`) returns all items (as if no param). Future dates or no matches return `[]`. Sorting (ascending by `timestamp`) is always preserved. Empty results return `[]`.
-
-### Notable Changes
-
-- Introduced timestamp-based filtering (`?since=ISO string`) for both plans and thoughts, enabling retrieval of items created after a specific date while preserving combinations with existing params (`?status` for plans, `?limit` for thoughts) and sorting.
-- No breaking changes to any APIs or external interfaces (previous endpoints and default behaviors preserved; invalid/no `?since` returns all as before).
-- Builds on v1.8 with 73 passing tests, including dedicated `v1.9.test.js` for new features, edge cases, and full integration.
+- Test coverage: `v1.9.test.js` verifies filtering, sorting, combinations, invalid params, idempotent schema updates, and integration; full suite passes (73 tests total).

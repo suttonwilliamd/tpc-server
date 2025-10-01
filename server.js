@@ -95,6 +95,18 @@ async function localInitDB(db, dbPath, skipMigration = false) {
           )`, (err) => err ? rej(err) : res());
         })
       ]).then(async () => {
+        // Add created_at column to plans if not exists
+        const planColumns = await new Promise((res, rej) => {
+          db.all("PRAGMA table_info(plans)", (err, rows) => {
+            if (err) rej(err);
+            else res(rows.map(r => r.name));
+          });
+        });
+        if (!planColumns.includes('created_at')) {
+          await runSql(db, 'ALTER TABLE plans ADD COLUMN created_at INTEGER');
+          await runSql(db, "UPDATE plans SET created_at = CAST(strftime('%s', timestamp) AS INTEGER) * 1000 WHERE created_at IS NULL");
+        }
+
         if (!skipMigration) {
           // Migrate plans if empty
           const planCount = await new Promise((res, rej) => {
@@ -231,15 +243,16 @@ async function createApp({ skipMigration = false } = {}) {
       const status = "proposed";
       const changelog = "[]";
 
+      const createdAt = Date.now();
       const result = await runSql(localDb,
-        "INSERT INTO plans (title, description, status, changelog, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [title, description, status, changelog, timestamp]
+        "INSERT INTO plans (title, description, status, changelog, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [title, description, status, changelog, timestamp, createdAt]
       );
 
       const id = result.lastID;
       console.log(`POST /plans: Inserted ID ${id}, title: "${title}"`);
 
-      res.status(201).json({ id, title, description, status });
+      res.status(201).json({ id, title, description, status, timestamp });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Internal server error' });
@@ -338,13 +351,10 @@ async function createApp({ skipMigration = false } = {}) {
       const validStatuses = ['proposed', 'in_progress', 'completed'];
       let whereClauses = [];
       let sqlParams = [];
-      const since = req.query.since;
-      if (since) {
-        const sinceDate = new Date(since);
-        if (!isNaN(sinceDate.getTime())) {
-          whereClauses.push("timestamp >= ?");
-          sqlParams.push(since);
-        }
+      const since = Number(req.query.since);
+      if (!isNaN(since)) {
+        whereClauses.push("created_at >= ?");
+        sqlParams.push(since);
       }
       if (req.query.status && validStatuses.includes(req.query.status)) {
         whereClauses.push("status = ?");
@@ -354,7 +364,7 @@ async function createApp({ skipMigration = false } = {}) {
       if (whereClauses.length > 0) {
         sql += " WHERE " + whereClauses.join(" AND ");
       }
-      sql += " ORDER BY id ASC";
+      sql += " ORDER BY created_at ASC";
       let plans = await getAll(localDb, sql, sqlParams);
       plans = plans.map(p => ({
         id: p.id,
@@ -401,15 +411,13 @@ async function createApp({ skipMigration = false } = {}) {
   // GET /thoughts
   localApp.get('/thoughts', async (req, res) => {
     try {
-      const since = req.query.since;
+      const since = Number(req.query.since);
       let whereClauses = [];
       let sqlParams = [];
-      if (since) {
-        const sinceDate = new Date(since);
-        if (!isNaN(sinceDate.getTime())) {
-          whereClauses.push("timestamp >= ?");
-          sqlParams.push(since);
-        }
+      if (!isNaN(since)) {
+        const sinceIso = new Date(since).toISOString();
+        whereClauses.push("timestamp >= ?");
+        sqlParams.push(sinceIso);
       }
       let sql = "SELECT * FROM thoughts";
       if (whereClauses.length > 0) {
@@ -505,6 +513,18 @@ async function initDB() {
           )`, (err) => err ? rej(err) : res());
         })
       ]).then(async () => {
+        // Add created_at column to plans if not exists
+        const planColumns = await new Promise((res, rej) => {
+          globalDb.all("PRAGMA table_info(plans)", (err, rows) => {
+            if (err) rej(err);
+            else res(rows.map(r => r.name));
+          });
+        });
+        if (!planColumns.includes('created_at')) {
+          await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN created_at INTEGER');
+          await runSql(globalDb, "UPDATE plans SET created_at = CAST(strftime('%s', timestamp) AS INTEGER) * 1000 WHERE created_at IS NULL");
+        }
+
         // Same migration logic as local, but for globalDb
         const planCount = await new Promise((res, rej) => {
           globalDb.get("SELECT COUNT(*) as cnt FROM plans", (err, row) => {
@@ -662,15 +682,16 @@ globalApp.post('/plans', async (req, res) => {
     const status = "proposed";
     const changelog = "[]";
 
+    const createdAt = Date.now();
     const result = await runSql(globalDb,
-      "INSERT INTO plans (title, description, status, changelog, timestamp) VALUES (?, ?, ?, ?, ?)",
-      [title, description, status, changelog, timestamp]
+      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [title, description, status, changelog, timestamp, createdAt]
     );
 
     const id = result.lastID;
     console.log(`POST /plans: Inserted ID ${id}, title: "${title}"`);
 
-    res.status(201).json({ id, title, description, status });
+    res.status(201).json({ id, title, description, status, timestamp });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -765,13 +786,10 @@ globalApp.get('/plans', async (req, res) => {
     const validStatuses = ['proposed', 'in_progress', 'completed'];
     let whereClauses = [];
     let sqlParams = [];
-    const since = req.query.since;
-    if (since) {
-      const sinceDate = new Date(since);
-      if (!isNaN(sinceDate.getTime())) {
-        whereClauses.push("timestamp >= ?");
-        sqlParams.push(since);
-      }
+    const since = Number(req.query.since);
+    if (!isNaN(since)) {
+      whereClauses.push("created_at >= ?");
+      sqlParams.push(since);
     }
     if (req.query.status && validStatuses.includes(req.query.status)) {
       whereClauses.push("status = ?");
@@ -781,7 +799,7 @@ globalApp.get('/plans', async (req, res) => {
     if (whereClauses.length > 0) {
       sql += " WHERE " + whereClauses.join(" AND ");
     }
-    sql += " ORDER BY id ASC";
+    sql += " ORDER BY created_at ASC";
     let plans = await getAll(globalDb, sql, sqlParams);
     plans = plans.map(p => ({
       id: p.id,
@@ -826,15 +844,13 @@ globalApp.get('/plans/:id/thoughts', async (req, res) => {
 
 globalApp.get('/thoughts', async (req, res) => {
   try {
-    const since = req.query.since;
+    const since = Number(req.query.since);
     let whereClauses = [];
     let sqlParams = [];
-    if (since) {
-      const sinceDate = new Date(since);
-      if (!isNaN(sinceDate.getTime())) {
-        whereClauses.push("timestamp >= ?");
-        sqlParams.push(since);
-      }
+    if (!isNaN(since)) {
+      const sinceIso = new Date(since).toISOString();
+      whereClauses.push("timestamp >= ?");
+      sqlParams.push(sinceIso);
     }
     let sql = "SELECT * FROM thoughts";
     if (whereClauses.length > 0) {
