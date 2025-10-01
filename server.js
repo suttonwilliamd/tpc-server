@@ -182,7 +182,7 @@ async function localInitDB(db, dbPath, skipMigration = false) {
               const DATA_FILE = path.join(__dirname, 'data', 'thoughts.json');
               const data = await fs.readFile(DATA_FILE, 'utf8');
               const thoughts = JSON.parse(data);
-              console.log(`Parsed ${thoughts.length} thoughts from JSON`);
+              console.log(`[MIGRATION DEBUG] Parsed ${thoughts.length} thoughts from JSON for migration`);
               let inserted = 0;
               for (const thought of thoughts) {
                 await new Promise((res, rej) => {
@@ -193,14 +193,14 @@ async function localInitDB(db, dbPath, skipMigration = false) {
                         console.error(`Insert thought failed: ${err.message}`);
                         rej(err);
                       } else {
-                        console.log(`Inserted thought ID: ${this.lastID}, content: ${thought.content}`);
+                        console.log(`[MIGRATION DEBUG] Inserted thought ID: ${this.lastID}, content: ${thought.content}`);
                         inserted++;
                         res();
                       }
                     });
                 });
               }
-              console.log(`Thoughts migration completed: ${inserted} inserted successfully`);
+              console.log(`[MIGRATION DEBUG] Thoughts migration completed: ${inserted} inserted successfully`);
             } catch (e) {
               console.error('Thoughts migration failed:', e);
             }
