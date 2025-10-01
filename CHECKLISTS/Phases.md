@@ -31,7 +31,7 @@
 - Add `changelog` array to plans
 - `PATCH /plans/:id/changelog` to append change entries
 
-**v1.6 - Context Window Simulation**
+[x] **v1.6 - Context Window Simulation**
 - `GET /context` endpoint that returns:
   - All incomplete plans
   - Last 10 thoughts
