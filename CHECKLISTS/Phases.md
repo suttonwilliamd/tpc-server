@@ -59,7 +59,7 @@
 - Shows plans and thoughts in simple lists
 - No interactivity, just viewing
 
-**v2.1 - Read-Only API UI**
+[x] **v2.1 - Read-Only API UI**
 - Simple Express server serving basic HTML + fetch API
 - Can view data through web interface
 

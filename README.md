@@ -245,3 +245,20 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - Jest API tests pass (145 tests).
 - Playwright E2E tests in `e2e/v2.0.test.js` verify UI loading, title, elements, list counts, and DB route (3 tests passing).
 - Full suite: `npm test` (API) && `npx playwright test` (UI).
+
+## v2.1 - Read-Only API UI
+
+### Features
+- Updated UI to use fetch API for dynamic read-only viewing of plans and thoughts from the server API.
+- Parallel fetches to `/plans` and `/thoughts` endpoints, rendering lists with loading, error, and empty states.
+- Backward compatible: Static sql.js UI still works via `/tpc.db` route (kept for v2.0 compatibility).
+- No API changes; single HTML file maintained.
+
+### Usage
+- Same as v2.0: Start server and visit http://localhost:3000/index.html.
+- Now fetches live data from API dynamically (no client-side DB load).
+
+### Testing
+- Jest API tests pass (145 tests).
+- Playwright E2E tests: `e2e/v2.0.test.js` (static compatibility) and `e2e/v2.1.test.js` (dynamic fetch verification, network requests, empty state, no /tpc.db call) (5 tests passing).
+- Full suite: `npm test` (API) && `npx playwright test` (UI).

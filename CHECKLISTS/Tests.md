@@ -208,7 +208,7 @@ Inspect response body for:
 // Test 6: No error messages in UI
 ```
 
-## **v2.1 - Read-Only API UI**
+[x] ## **v2.1 - Read-Only API UI**
 
 **Tests:**
 ```javascript
@@ -216,10 +216,10 @@ Inspect response body for:
 Load UI in browser, check network requests to:
 GET /plans, GET /thoughts
 
- // Test 2: Data displays in UI
+  // Test 2: Data displays in UI
 Create test data, load UI, verify plans and thoughts appear
 
- // Test 3: UI handles empty state
+  // Test 3: UI handles empty state
 Load with empty DB, verify appropriate message
 ```
 
