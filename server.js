@@ -297,10 +297,10 @@ async function createApp({ skipMigration = false } = {}) {
 
   // PATCH /plans/:id/changelog
   localApp.patch('/plans/:id/changelog', async (req, res) => {
-    const { entry } = req.body;
+    const { change } = req.body;
 
-    if (!entry || entry.trim() === '') {
-      return res.status(400).json({ error: 'Entry is required and cannot be empty' });
+    if (!change || change.trim() === '') {
+      return res.status(400).json({ error: 'Change is required and cannot be empty' });
     }
 
     try {
@@ -311,8 +311,8 @@ async function createApp({ skipMigration = false } = {}) {
       }
 
       let changelog = JSON.parse(plan.changelog || '[]');
-      const timestamp = new Date().toISOString();
-      changelog.push({ timestamp, entry: entry.trim() });
+      const timestamp = Date.now();
+      changelog.push({ timestamp, change: change.trim() });
 
       await runSql(localDb, "UPDATE plans SET changelog = ? WHERE id = ?", [JSON.stringify(changelog), planId]);
 
@@ -728,10 +728,10 @@ globalApp.patch('/plans/:id', async (req, res) => {
 });
 
 globalApp.patch('/plans/:id/changelog', async (req, res) => {
-  const { entry } = req.body;
+  const { change } = req.body;
 
-  if (!entry || entry.trim() === '') {
-    return res.status(400).json({ error: 'Entry is required and cannot be empty' });
+  if (!change || change.trim() === '') {
+    return res.status(400).json({ error: 'Change is required and cannot be empty' });
   }
 
   try {
@@ -742,8 +742,8 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
     }
 
     let changelog = JSON.parse(plan.changelog || '[]');
-    const timestamp = new Date().toISOString();
-    changelog.push({ timestamp, entry: entry.trim() });
+    const timestamp = Date.now();
+    changelog.push({ timestamp, change: change.trim() });
 
     await runSql(globalDb, "UPDATE plans SET changelog = ? WHERE id = ?", [JSON.stringify(changelog), planId]);
 

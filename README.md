@@ -65,9 +65,19 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 ## v1.5 - Plan Changelog
 
-- Audit trail via changelog array in plans (append-only entries with timestamps).
-- PATCH /plans/:id/changelog: { "entry": "string" } (required, non-empty) -> 200 full plan with changelog appended.
-- Test coverage: v1.5.test.js covers PATCH append (valid/invalid, multiple, non-existent), retrieval includes changelog, integration with status, regressions.
+### Features
+- Plans now include `changelog: []` (empty array) on creation; backward compatible (POST /plans response excludes it).
+- **GET /plans/:id**: Returns single plan object (including changelog), status 200; 404 if not found.
+- **PATCH /plans/:id/changelog**: Accepts body { "change": "string" } (required, non-empty); appends { timestamp: Date.now() (number), change } to changelog array; returns updated full plan (200); 404 if plan not found; 400 if empty change. Existing PATCH /plans/:id (status) unaffected.
+- Existing endpoints unchanged; changelog append-only, separate from status updates.
+
+### Usage
+- Create plan: `curl -X POST http://localhost:3000/plans -H "Content-Type: application/json" -d '{"title": "Test Plan", "description": "Desc"}'` -> 201 { id, title, description, status: "proposed" } (no changelog in response).
+- Retrieve single plan: `curl http://localhost:3000/plans/1` -> 200 full plan { id, title, description, status, timestamp, changelog: [] }.
+- Append changelog: `curl -X PATCH http://localhost:3000/plans/1/changelog -H "Content-Type: application/json" -d '{"change": "Updated status"}'` -> 200 updated full plan with changelog: [{ timestamp: <number>, change: "Updated status" }].
+- Error: Empty change -> 400; non-existent plan -> 404.
+
+- Test coverage: v1.5.test.js covers POST initializes [], GET /plans/:id (full/404), PATCH appends (validates, accumulates, timestamp number, returns updated), integration (create/add/retrieve), errors (empty 400, invalid id 404), ensures prior endpoints unaffected.
 
 ## v1.6 - Context Window
 

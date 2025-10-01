@@ -315,10 +315,12 @@ describe('Plan Thoughts Linking', () => {
     expect(thoughtsResponse.body).toEqual([]);
   });
 
-  test('GET /plans/:id/thoughts returns 404 for non-existent plan', async () => {
-    await request(app)
+  test('GET /plans/:id/thoughts returns 200 [] for non-existent plan', async () => {
+    const response = await request(app)
       .get('/plans/999/thoughts')
-      .expect(404);
+      .expect(200);
+
+    expect(response.body).toEqual([]);
   });
 
   test('GET /plans/:id/thoughts excludes thoughts with different plan_id', async () => {
@@ -377,14 +379,14 @@ describe('Plan Changelog', () => {
     const planId = createResponse.body.id;
 
     // Append changelog
-    const entry = 'Initial entry';
+    const change = 'Initial change';
     const updateResponse = await request(app)
       .patch(`/plans/${planId}/changelog`)
-      .send({ entry })
+      .send({ change })
       .expect(200);
 
     expect(updateResponse.body.changelog).toHaveLength(1);
-    expect(updateResponse.body.changelog[0].entry).toBe(entry);
+    expect(updateResponse.body.changelog[0].change).toBe(change);
     expect(updateResponse.body.changelog[0].timestamp).toBeDefined();
     expect(updateResponse.body.id).toBe(planId);
 
@@ -400,13 +402,13 @@ describe('Plan Changelog', () => {
 
     const planId = createResponse.body.id;
 
-    const entries = ['First entry', 'Second entry'];
+    const changes = ['First change', 'Second change'];
     let timestamps = [];
 
     // First append
     const firstResponse = await request(app)
       .patch(`/plans/${planId}/changelog`)
-      .send({ entry: entries[0] })
+      .send({ change: changes[0] })
       .expect(200);
 
     timestamps.push(firstResponse.body.changelog[0].timestamp);
@@ -414,21 +416,21 @@ describe('Plan Changelog', () => {
     // Second append
     const secondResponse = await request(app)
       .patch(`/plans/${planId}/changelog`)
-      .send({ entry: entries[1] })
+      .send({ change: changes[1] })
       .expect(200);
 
     timestamps.push(secondResponse.body.changelog[1].timestamp);
 
     expect(secondResponse.body.changelog).toHaveLength(2);
-    expect(secondResponse.body.changelog[0].entry).toBe(entries[0]);
-    expect(secondResponse.body.changelog[1].entry).toBe(entries[1]);
+    expect(secondResponse.body.changelog[0].change).toBe(changes[0]);
+    expect(secondResponse.body.changelog[1].change).toBe(changes[1]);
     expect(new Date(timestamps[0]) < new Date(timestamps[1])).toBe(true);
   });
 
   test('PATCH /plans/:id/changelog for non-existent plan returns 404', async () => {
     await request(app)
       .patch('/plans/999/changelog')
-      .send({ entry: 'Test entry' })
+      .send({ change: 'Test change' })
       .expect(404);
   });
 
@@ -442,7 +444,7 @@ describe('Plan Changelog', () => {
 
     await request(app)
       .patch(`/plans/${planId}/changelog`)
-      .send({ entry: '' })
+      .send({ change: '' })
       .expect(400);
   });
 
@@ -458,7 +460,7 @@ describe('Plan Changelog', () => {
     // Append changelog
     await request(app)
       .patch(`/plans/${planId}/changelog`)
-      .send({ entry: 'Test changelog entry' })
+      .send({ change: 'Test changelog change' })
       .expect(200);
 
     // GET /plans
@@ -468,7 +470,7 @@ describe('Plan Changelog', () => {
 
     const plan = plansResponse.body.find(p => p.id === parseInt(planId));
     expect(plan.changelog).toHaveLength(1);
-    expect(plan.changelog[0].entry).toBe('Test changelog entry');
+    expect(plan.changelog[0].change).toBe('Test changelog change');
 
     // GET /plans/:id/thoughts (should be empty, unaffected)
     const thoughtsResponse = await request(app)

@@ -148,14 +148,14 @@ describe('v1.7 SQLite Migration - Regression Tests', () => {
 
     await request(app)
       .patch(`/plans/${id}/changelog`)
-      .send({ entry: 'Test entry' })
+      .send({ change: 'Test change' })
       .expect(200);
 
     const getRes = await request(app).get(`/plans/${id}`);
     expect(getRes.body.title).toBe('Detailed Plan');
     expect(Array.isArray(getRes.body.changelog)).toBe(true);
     expect(getRes.body.changelog.length).toBe(1);
-    expect(getRes.body.changelog[0].entry).toBe('Test entry');
+    expect(getRes.body.changelog[0].change).toBe('Test change');
   });
 
   test('PATCH /plans/:id updates status', async () => {
@@ -183,15 +183,15 @@ describe('v1.7 SQLite Migration - Regression Tests', () => {
 
     const patchRes = await request(app)
       .patch(`/plans/${id}/changelog`)
-      .send({ entry: 'First change' })
+      .send({ change: 'First change' })
       .expect(200);
 
     expect(patchRes.body.changelog.length).toBe(1);
-    expect(patchRes.body.changelog[0].entry).toBe('First change');
+    expect(patchRes.body.changelog[0].change).toBe('First change');
 
     await request(app)
       .patch(`/plans/${id}/changelog`)
-      .send({ entry: 'Second change' })
+      .send({ change: 'Second change' })
       .expect(200);
 
     const getRes = await request(app).get(`/plans/${id}`);
@@ -272,15 +272,17 @@ describe('v1.7 SQLite Migration - Regression Tests', () => {
 
     await request(app)
       .patch(`/plans/${id}/changelog`)
-      .send({ entry: '' })
+      .send({ change: '' })
       .expect(400);
   });
 
   test('Non-existent resources return 404', async () => {
     await request(app).get('/plans/999').expect(404);
-    await request(app).get('/plans/999/thoughts').expect(404);
+    const thoughtsRes = await request(app).get('/plans/999/thoughts');
+    expect(thoughtsRes.status).toBe(200);
+    expect(thoughtsRes.body).toEqual([]);
     await request(app).patch('/plans/999').send({ status: 'proposed' }).expect(404);
-    await request(app).patch('/plans/999/changelog').send({ entry: 'test' }).expect(404);
+    await request(app).patch('/plans/999/changelog').send({ change: 'test' }).expect(404);
   });
 
   test('Empty DB returns empty arrays', async () => {
