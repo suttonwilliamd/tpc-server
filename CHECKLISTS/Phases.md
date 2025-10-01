@@ -74,8 +74,11 @@
 [x] Add `last_modified_by: "human" | "agent"` field
 
 **v2.4 - The "Dirty Flag" System**
-- `needs_review` boolean on plans
-- Editing a plan sets `needs_review = true`
+[x] `needs_review` INTEGER column (0/1, default 0) on plans
+[x] PUT /plans/:id (human) sets needs_review=1
+[x] Agent endpoints (POST/PATCH) set needs_review=0
+[x] GET responses include needs_review
+[x] Schema migration and backfill to 0
 
 **v2.5 - Agent Review System**
 - `GET /plans?needs_review=true` 

@@ -303,3 +303,23 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - Jest API tests pass (159 tests total, including new v2.3.test.js: PUT partial/full updates, validation (400 empty/invalid), 404 not found, integration with GET, agent PATCH sets 'agent', backfill for existing data, compatibility with filters (?status, ?since)).
 - Playwright E2E tests unchanged (8 tests passing; UI read-only, no impact).
 - Full suite: `npm test` (API) && `npx playwright test` (UI).
+
+## v2.4 - Dirty Flag System
+
+### Features
+- Added `needs_review` INTEGER column (0=false, 1=true, default 0) to plans table.
+- Human edits via PUT /plans/:id set needs_review=1 (when last_modified_by='human').
+- Agent modifications (POST /plans, PATCH /plans/:id status/changelog) set needs_review=0 (when last_modified_by='agent').
+- All relevant GET endpoints (/plans, /plans/:id, /context) include needs_review in responses.
+- Schema migration: ALTER TABLE adds column if missing; backfills existing plans to 0.
+- Backward compatible: Default 0 for new/existing plans; no breaking changes to APIs or UI.
+
+### Usage
+- After human edit: `curl -X PUT http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"title": "Updated"}'` -> 200 full plan with "needs_review": 1
+- Agent update: `curl -X PATCH http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"status": "in_progress"}'` -> needs_review: 0 in subsequent GET
+- Retrieve: `curl http://localhost:3000/plans` -> includes "needs_review" for each plan; `curl http://localhost:3000/context` -> incompletePlans include flag.
+
+### Testing
+- Jest API tests pass (167 tests total, including new v2.4.test.js: schema backfill verifies 0, PUT sets 1/returns flag, agent PATCH sets 0, GET /plans and /plans/:id include flag, integration: edit plan verify flag in GET /plans?status=..., /context; filters compatible).
+- Playwright E2E tests unchanged (8 tests passing; UI read-only, no impact).
+- Full suite: `npm test` (API) && `npx playwright test` (UI).

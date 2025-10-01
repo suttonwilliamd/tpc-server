@@ -262,19 +262,34 @@ Expect: 400 Bad Request
 ## **v2.4 - The "Dirty Flag" System**
 
 **Tests:**
-```javascript
-// Test 1: Human edit sets needs_review
-PUT /plans/1 (human edit)
-Check response: {needs_review: true, ...}
+[x] ```javascript
+// Test 1: Schema backfill sets needs_review=0 for existing plans after migration
+// Verify migration UPDATE sets 0 where NULL
 
- // Test 2: Agent updates don't set flag
-PATCH /plans/1 (agent update)
-Check response: {needs_review: false, ...}
+// Test 2: PUT /plans/:id sets needs_review=1 (human), returns with flag
+PUT /plans/1 {"title": "Updated"}
+Expect: 200 {needs_review: 1, last_modified_by: "human", ...}
 
- // Test 3: Flag persists in GET
+// Test 3: Agent PATCH sets needs_review=0
+PATCH /plans/1 {"status": "in_progress"}
 GET /plans/1
-Expect: {needs_review: true, ...}
+Expect: needs_review: 0, last_modified_by: "agent"
+
+// Test 4: GET /plans and /plans/:id include needs_review
+GET /plans
+Expect: array with "needs_review" property each
+
+// Test 5: Integration: Edit plan, verify flag in GET /plans?status=..., /context
+PUT /plans/1 (human edit)
+GET /plans?status=proposed -> find plan with needs_review: 1
+GET /context -> incompletePlans include needs_review: 1
+
+// Test 6: Filters compatible (e.g., ?status, ?since include flag)
+GET /plans?status=proposed&since=0
+Expect: plans with needs_review
 ```
+
+Full suite passes: npm test (167 tests) && npx playwright test (8 UI tests, unchanged).
 
 ## **v2.5 - Agent Review System**
 

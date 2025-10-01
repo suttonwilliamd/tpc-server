@@ -123,6 +123,12 @@ async function localInitDB(db, dbPath, skipMigration = false) {
           await runSql(db, 'ALTER TABLE plans ADD COLUMN last_modified_at INTEGER');
           await runSql(db, "UPDATE plans SET last_modified_at = created_at WHERE last_modified_at IS NULL");
         }
+        
+        if (!planColumns.includes('needs_review')) {
+          console.log('localInitDB: Adding needs_review');
+          await runSql(db, 'ALTER TABLE plans ADD COLUMN needs_review INTEGER DEFAULT 0');
+          await runSql(db, "UPDATE plans SET needs_review = 0 WHERE needs_review IS NULL");
+        }
 
         if (!skipMigration) {
           console.log('localInitDB: Running migration (JSON import)');
@@ -263,7 +269,7 @@ async function createApp({ skipMigration = false } = {}) {
 
       const createdAt = Date.now();
       const result = await runSql(localDb,
-        "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
         [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt]
       );
 
@@ -294,6 +300,7 @@ async function createApp({ skipMigration = false } = {}) {
         created_at: plan.created_at,
         last_modified_at: plan.last_modified_at,
         last_modified_by: plan.last_modified_by,
+        needs_review: plan.needs_review,
         changelog: JSON.parse(plan.changelog)
       };
       res.status(200).json(responsePlan);
@@ -315,7 +322,7 @@ async function createApp({ skipMigration = false } = {}) {
       const planId = parseInt(req.params.id);
       if (status) {
         const now = Date.now();
-        await runSql(localDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [status, now, planId]);
+        await runSql(localDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [status, now, planId]);
       }
 
       const updated = await getOne(localDb, "SELECT status FROM plans WHERE id = ?", [planId]);
@@ -350,7 +357,7 @@ async function createApp({ skipMigration = false } = {}) {
       changelog.push({ timestamp, change: change.trim() });
 
       const now = Date.now();
-      await runSql(localDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [JSON.stringify(changelog), now, planId]);
+      await runSql(localDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [JSON.stringify(changelog), now, planId]);
 
       const updatedPlan = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
       const responsePlan = {
@@ -359,6 +366,10 @@ async function createApp({ skipMigration = false } = {}) {
         description: updatedPlan.description,
         status: updatedPlan.status,
         timestamp: updatedPlan.timestamp,
+        created_at: updatedPlan.created_at,
+        last_modified_at: updatedPlan.last_modified_at,
+        last_modified_by: updatedPlan.last_modified_by,
+        needs_review: updatedPlan.needs_review,
         changelog
       };
       res.status(200).json(responsePlan);
@@ -393,7 +404,7 @@ async function createApp({ skipMigration = false } = {}) {
     }
 
     const now = Date.now();
-    const setClause = updateFields.join(', ') + ', last_modified_by = ?, last_modified_at = ?';
+    const setClause = updateFields.join(', ') + ', last_modified_by = ?, last_modified_at = ?, needs_review = 1';
     params.push('human');
     params.push(now);
 
@@ -418,6 +429,7 @@ async function createApp({ skipMigration = false } = {}) {
         created_at: updatedPlan.created_at,
         last_modified_at: updatedPlan.last_modified_at,
         last_modified_by: updatedPlan.last_modified_by,
+        needs_review: updatedPlan.needs_review,
         changelog: JSON.parse(updatedPlan.changelog)
       };
       res.status(200).json(responsePlan);
@@ -457,6 +469,7 @@ async function createApp({ skipMigration = false } = {}) {
         created_at: p.created_at,
         last_modified_at: p.last_modified_at,
         last_modified_by: p.last_modified_by,
+        needs_review: p.needs_review,
         changelog: JSON.parse(p.changelog)
       }));
       console.log(`GET /plans: Returning ${plans.length} plans`);
@@ -545,6 +558,7 @@ async function createApp({ skipMigration = false } = {}) {
         created_at: p.created_at,
         last_modified_at: p.last_modified_at,
         last_modified_by: p.last_modified_by,
+        needs_review: p.needs_review,
         changelog: JSON.parse(p.changelog)
       }));
 
@@ -623,6 +637,11 @@ async function initDB() {
         if (!planColumns.includes('last_modified_at')) {
           await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN last_modified_at INTEGER');
           await runSql(globalDb, "UPDATE plans SET last_modified_at = created_at WHERE last_modified_at IS NULL");
+        }
+        
+        if (!planColumns.includes('needs_review')) {
+          await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN needs_review INTEGER DEFAULT 0');
+          await runSql(globalDb, "UPDATE plans SET needs_review = 0 WHERE needs_review IS NULL");
         }
 
         // Same migration logic as local, but for globalDb
@@ -785,7 +804,7 @@ globalApp.post('/plans', async (req, res) => {
 
     const createdAt = Date.now();
     const result = await runSql(globalDb,
-      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
       [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt]
     );
 
@@ -815,6 +834,7 @@ globalApp.get('/plans/:id', async (req, res) => {
       created_at: plan.created_at,
       last_modified_at: plan.last_modified_at,
       last_modified_by: plan.last_modified_by,
+      needs_review: plan.needs_review,
       changelog: JSON.parse(plan.changelog)
     };
     res.status(200).json(responsePlan);
@@ -835,7 +855,7 @@ globalApp.patch('/plans/:id', async (req, res) => {
     const planId = parseInt(req.params.id);
     if (status) {
       const now = Date.now();
-      await runSql(globalDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [status, 'agent', now, planId]);
+      await runSql(globalDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [status, now, planId]);
     }
 
     const updated = await getOne(globalDb, "SELECT status FROM plans WHERE id = ?", [planId]);
@@ -844,6 +864,66 @@ globalApp.patch('/plans/:id', async (req, res) => {
     }
 
     res.status(200).json({ status: updated.status });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /plans/:id for global
+globalApp.put('/plans/:id', async (req, res) => {
+  const { title, description } = req.body;
+
+  let updateFields = [];
+  let params = [];
+
+  if (title !== undefined) {
+    if (!title || title.trim() === '') {
+      return res.status(400).json({ error: 'Title cannot be empty if provided' });
+    }
+    updateFields.push('title = COALESCE(?, title)');
+    params.push(title.trim());
+  }
+
+  if (description !== undefined) {
+    updateFields.push('description = COALESCE(?, description)');
+    params.push(description);
+  }
+
+  if (updateFields.length === 0) {
+    return res.status(400).json({ error: 'At least one field must be provided' });
+  }
+
+  const now = Date.now();
+  const setClause = updateFields.join(', ') + ', last_modified_by = ?, last_modified_at = ?, needs_review = 1';
+  params.push('human');
+  params.push(now);
+
+  const sql = `UPDATE plans SET ${setClause} WHERE id = ?`;
+  params.push(parseInt(req.params.id));
+
+  try {
+    const planId = parseInt(req.params.id);
+    const result = await runSql(globalDb, sql, params);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const updatedPlan = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+    const responsePlan = {
+      id: updatedPlan.id,
+      title: updatedPlan.title,
+      description: updatedPlan.description,
+      status: updatedPlan.status,
+      timestamp: updatedPlan.timestamp,
+      created_at: updatedPlan.created_at,
+      last_modified_at: updatedPlan.last_modified_at,
+      last_modified_by: updatedPlan.last_modified_by,
+      needs_review: updatedPlan.needs_review,
+      changelog: JSON.parse(updatedPlan.changelog)
+    };
+    res.status(200).json(responsePlan);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -869,7 +949,7 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
     changelog.push({ timestamp, change: change.trim() });
 
     const now = Date.now();
-    await runSql(globalDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [JSON.stringify(changelog), 'agent', now, planId]);
+    await runSql(globalDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [JSON.stringify(changelog), now, planId]);
 
     const updatedPlan = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
     const responsePlan = {
@@ -878,6 +958,10 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
       description: updatedPlan.description,
       status: updatedPlan.status,
       timestamp: updatedPlan.timestamp,
+      created_at: updatedPlan.created_at,
+      last_modified_at: updatedPlan.last_modified_at,
+      last_modified_by: updatedPlan.last_modified_by,
+      needs_review: updatedPlan.needs_review,
       changelog
     };
     res.status(200).json(responsePlan);
@@ -916,6 +1000,7 @@ globalApp.get('/plans', async (req, res) => {
       created_at: p.created_at,
       last_modified_at: p.last_modified_at,
       last_modified_by: p.last_modified_by,
+      needs_review: p.needs_review,
       changelog: JSON.parse(p.changelog)
     }));
     console.log(`GET /plans: Returning ${plans.length} plans`);
@@ -1001,6 +1086,7 @@ globalApp.get('/context', async (req, res) => {
       created_at: p.created_at,
       last_modified_at: p.last_modified_at,
       last_modified_by: p.last_modified_by,
+      needs_review: p.needs_review,
       changelog: JSON.parse(p.changelog)
     }));
 
