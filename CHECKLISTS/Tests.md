@@ -85,20 +85,25 @@ Expect: 200 OK, []
 
 **Tests:**
 ```javascript
-// Test 1: Thought can link to plan
-POST /thoughts
-Body: {"content": "About plan 1", "plan_id": "1"}
-Expect: 201, {plan_id: "1", ...}
+// Test 1: POST /thoughts with plan_id (valid/invalid/missing) persists correctly
+POST /thoughts {"content": "Linked", "plan_id": "1"} -> 201 includes plan_id
+POST /thoughts {"content": "Unlinked"} -> 201 no plan_id
+POST /thoughts {"content": "Invalid", "plan_id": "999"} -> 201 includes plan_id "999"
 
- // Test 2: Get thoughts for a plan
-GET /plans/1/thoughts
-Expect: 200 OK, [{content: "About plan 1", ...}]
+// Test 2: GET /plans/:id/thoughts returns linked thoughts sorted asc by timestamp
+Create plan 1, add 2 linked thoughts -> GET /plans/1/thoughts -> 200 array sorted asc, length 2
 
- // Test 3: Invalid plan_id returns empty
-GET /plans/999/thoughts
-Expect: 200 OK, []
+// Test 3: Filters unlinked thoughts, empty for no linked thoughts
+Add unlinked thought -> GET /plans/1/thoughts -> only linked ones
 
- // Test 4: Thoughts without plan_id work normally
+// Test 4: Invalid/non-existent plan_id returns 200 with []
+GET /plans/999/thoughts -> 200 []
+
+// Test 5: Orphans (thoughts with invalid plan_id) not returned for that plan
+POST thought with plan_id "999" -> GET /plans/999/thoughts -> 200 []
+
+// Test 6: Integration: Create plan, link thoughts, retrieve sorted
+// Test 7: Regression: Prior endpoints (POST/GET plans/thoughts) unaffected
 ```
 
 [x] ## **v1.5 - Plan Changelog**

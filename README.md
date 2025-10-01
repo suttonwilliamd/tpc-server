@@ -52,10 +52,16 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 ## v1.4 - Thought-Plan Linking
 
-- Optional plan_id in thoughts. Retrieve linked thoughts per plan.
-- POST /thoughts: { "content", "plan_id"?: number } (no validation) -> 201 includes plan_id if provided.
-- GET /plans/:id/thoughts: 200 filtered/sorted asc array or [], 404 invalid plan.
-- Test coverage: v1.4.test.js covers POST with/without plan_id (invalid allowed), GET linked (empty/filtered/sorted), persistence, regressions.
+### Features
+- Optional `plan_id` (string) in POST /thoughts body; stored without validation (invalid/missing allowed for backward compatibility).
+- New GET /plans/:id/thoughts: Returns thoughts linked to the plan (filtered by plan_id, sorted ascending by timestamp); returns empty array [] if plan does not exist or no linked thoughts (200 OK, no 404).
+
+### Usage
+- Create thought linked to plan: `curl -X POST http://localhost:3000/thoughts -H "Content-Type: application/json" -d '{"content": "Linked thought", "plan_id": "1"}'`
+- Retrieve linked thoughts: `curl http://localhost:3000/plans/1/thoughts`
+- For non-existent plan: `curl http://localhost:3000/plans/999/thoughts` returns []
+
+- Test coverage: v1.4.test.js covers POST with/without plan_id (persists correctly, invalid allowed), GET /plans/:id/thoughts (sorted asc, filters unlinked, empty for no plan/no thoughts, 200 [] for invalid id), integration (create plan, link/retrieve thoughts), ensures prior endpoints unaffected.
 
 ## v1.5 - Plan Changelog
 

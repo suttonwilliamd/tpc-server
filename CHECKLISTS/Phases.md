@@ -23,7 +23,7 @@
 
 ### **Linking Phase**
 
-**v1.4 - Thought-Plan Linking**
+[x] **v1.4 - Thought-Plan Linking**
 - Thoughts can reference plan IDs
 - `GET /plans/:id/thoughts` to see related thoughts
 
