@@ -378,7 +378,7 @@ async function createApp({ skipMigration = false } = {}) {
       const planId = parseInt(req.params.id);
       const plan = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
       if (!plan) {
-        return res.status(404).json({ error: 'Plan not found' });
+        return res.status(200).json([]);
       }
 
       const thoughts = await getAll(localDb,
@@ -807,7 +807,7 @@ globalApp.get('/plans/:id/thoughts', async (req, res) => {
     const planId = parseInt(req.params.id);
     const plan = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
     if (!plan) {
-      return res.status(404).json({ error: 'Plan not found' });
+      return res.status(200).json([]);
     }
 
     const thoughts = await getAll(globalDb,

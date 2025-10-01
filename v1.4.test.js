@@ -175,20 +175,31 @@ describe('v1.4 Thought-Plan Linking', () => {
       expect(res2.body).toEqual([]);
     });
 
-    test('invalid plan: returns 404', async () => {
-      await request(app)
+    test('invalid plan: returns 200 with []', async () => {
+      const res1 = await request(app)
         .get('/plans/999/thoughts')
-        .expect(404);
+        .expect(200);
 
-      // Even after POST with invalid plan_id
+      expect(res1.body).toEqual([]);
+
+      // Even after POST with invalid plan_id, still returns []
       await request(app)
         .post('/thoughts')
         .send({ content: 'Test', plan_id: 999 })
         .expect(201);
 
-      await request(app)
+      // Verify thought created via GET /thoughts
+      const allRes = await request(app)
+        .get('/thoughts')
+        .expect(200);
+      expect(allRes.body).toHaveLength(1);
+      expect(allRes.body[0].plan_id).toBe('999');
+
+      const res2 = await request(app)
         .get('/plans/999/thoughts')
-        .expect(404);
+        .expect(200);
+
+      expect(res2.body).toEqual([]);
     });
   });
 
