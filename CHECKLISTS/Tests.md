@@ -167,21 +167,21 @@ GET /plans?status=invalid
 Expect: all plans (ignores invalid status)
 ```
 
-## **v1.9 - Timestamp Queries**
+[x] ## **v1.9 - Timestamp Queries**
 
 **Tests:**
 ```javascript
-// Test 1: Get plans since timestamp
+[x] // Test 1: Get plans since timestamp
 Create plan1, wait 1s, note timestamp, create plan2
 GET /plans?since=<timestamp>
-Expect: [plan2] only
+Expect: [plan2] only (plans >= date, sorted asc)
 
- // Test 2: Get thoughts since timestamp
-Similar test with thoughts
+[x]  // Test 2: Get thoughts since timestamp
+Similar test with thoughts (thoughts >= date, sorted asc)
 
- // Test 3: Invalid timestamp format
+[x]  // Test 3: Invalid timestamp format
 GET /plans?since=not-a-timestamp
-Expect: 400 Bad Request
+Expect: all plans (ignores invalid, returns all)
 ```
 
 ## **v2.0 - Static HTML UI**

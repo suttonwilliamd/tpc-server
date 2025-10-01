@@ -2,34 +2,22 @@
 
 A Node.js/Express API for AI-human collaboration, starting with JSON file storage for thoughts and plans.
 
-## v1.0 - Basic Thought Logger
-
 ### Setup and Usage
 1. Install dependencies: `npm install`
 2. Start the server: `node server.js`
 3. The server runs on `http://localhost:3000`
 
-### Endpoints
-- **POST /thoughts**
-  - **Description**: Creates a new thought entry.
-  - **Request Body**: `{ "content": "string" }` (required, non-empty)
-  - **Response**: 201 Created, `{ "id": "number", "content": "string", "timestamp": "ISO string" }`
-  - **Errors**:
-    - 400 Bad Request if content is missing or empty.
-  - **Persistence**: Thoughts are appended to `data/thoughts.json` with auto-incrementing IDs starting from 1.
-  - **Notes**: Duplicate content is allowed. No retrieval endpoint in v1.0 (internal testing uses temporary GET).
+## v1.0 - Basic Thought Logger
+
+- Introduced core thought logging. Thoughts stored as objects in data/thoughts.json (migrated to DB). Auto-incrementing IDs from 1.
+- POST /thoughts: { "content": "string" } (required, non-empty) -> 201 { id, content, timestamp }.
+- Test coverage: v1.0.test.js covers POST creation (valid/invalid, multiple, persistence via GET /thoughts sorted asc), empty state.
 
 ## v1.1 - Basic Plan Creator
 
-### Endpoints
-- **POST /plans**
-  - **Description**: Creates a new plan entry.
-  - **Request Body**: `{ "title": "string" (required, non-empty), "description": "string" (required, non-empty) }`
-  - **Response**: 201 Created, `{ "id": number, "title": "string", "description": "string", "status": "proposed" }`
-  - **Errors**:
-    - 400 Bad Request if title or description is missing or empty.
-  - **Persistence**: Plans are appended to `data/plans.json` with auto-incrementing IDs starting from 1 and a timestamp.
-  - **Notes**: Duplicate titles are allowed. Status is set to "proposed". No retrieval endpoint in v1.1 (internal testing uses fs reads). v1.0 /thoughts endpoint remains unchanged.
+- Added plan creation in data/plans.json. Plans include title, description, default "proposed" status.
+- POST /plans: { "title": "string", "description": "string" } (required, non-empty) -> 201 { id, title, description, status: "proposed", timestamp }.
+- Test coverage: v1.1.test.js covers POST plans (valid/invalid, multiple, persistence via GET /plans sorted asc), regression on thoughts.
 
 ### Testing
 Run `npm test` to execute Jest tests verifying the endpoint functionality.
@@ -41,116 +29,35 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - `data/tpc.db`: SQLite database for thoughts and plans (introduced in v1.7).
 - `thoughts.test.js`: Unit tests using Supertest.
 - `plans.test.js`: Unit tests for plans endpoint using Supertest.
-- `v1.6.test.js`: Integration tests for v1.6 features.
-- `v1.7.test.js`: Regression tests for v1.7 migration and all APIs.
+- `v1.0.test.js` through `v1.9.test.js`: Version-specific tests for endpoints, validation, persistence, edges, and regressions.
 - `package.json`: Dependencies and scripts.
-
-Future versions will add plans, retrieval, and more features without breaking v1.0 compatibility.
 
 ## v1.2 - Plan Status Updater
 
-### Endpoints
-
-- **PATCH /plans/:id**
-  - **Description**: Updates the status of an existing plan.
-  - **Request Body**: `{ "status": "in_progress" | "completed" }` (optional; if omitted, no change)
-  - **Response**: 200 OK, `{ "status": "updated_status" }`
-  - **Errors**:
-    - 400 Bad Request if status is invalid (must be "proposed", "in_progress", or "completed").
-    - 404 Not Found if plan ID does not exist.
-  - **Persistence**: Updates the status in `data/plans.json`.
-  - **Notes**: Status defaults to "proposed" on creation. This endpoint only updates status; other fields unchanged.
-
-- **GET /plans/:id** (Temporary for testing)
-  - **Description**: Retrieves a single plan by ID.
-  - **Response**: 200 OK, full plan object.
-  - **Errors**: 404 Not Found if plan ID does not exist.
-  - **Notes**: Will be replaced by full list retrieval in v1.3. v1.0 /thoughts and v1.1 /plans endpoints remain unchanged.
+- Added status updates for plans (proposed -> in_progress/completed). Temporary single plan retrieval.
+- PATCH /plans/:id: { "status": "in_progress" | "completed" } (optional) -> 200 { status }.
+- GET /plans/:id: 200 full plan.
+- Test coverage: v1.2.test.js covers PATCH updates (valid/invalid statuses, multiple, non-existent), GET single, persistence, regressions.
 
 ## v1.3 - Simple Retrieval
 
-### Features Implemented
-
-- **GET /thoughts**
-  - **Description**: Retrieves all thoughts as an array, sorted ascending by timestamp.
-  - **Response**: 200 OK, `[{ "id": number, "content": "string", "timestamp": "ISO string" }, ...]` (empty `[]` if none).
-  - **Notes**: Thoughts are loaded from `data/thoughts.json` and sorted by timestamp. No request body or parameters. Builds on v1.0 POST /thoughts.
-
-- **GET /plans**
-  - **Description**: Retrieves all plans as an array, sorted ascending by timestamp.
-  - **Response**: 200 OK, `[{ "id": number, "title": "string", "description": "string", "status": "string", "timestamp": "ISO string" }, ...]` (empty `[]` if none).
-  - **Notes**: Plans are loaded from `data/plans.json` and sorted by timestamp. No request body or parameters. Replaces temporary GET /plans/:id for public use; single retrieval remains internal for testing. Builds on v1.1 POST /plans and v1.2 PATCH /plans/:id.
-
-### Usage Instructions
-
-- Start the server: `node server.js` (runs on `http://localhost:3000`).
-
-- Retrieve all thoughts: `curl http://localhost:3000/thoughts`
-
-- Retrieve all plans: `curl http://localhost:3000/plans`
-
-### Notable Changes
-
-- Added simple retrieval APIs for thoughts and plans, including sorting by timestamp and handling empty responses.
-- No breaking changes to existing endpoints (v1.0-v1.2 functionality preserved).
-- All tests pass (21 total, including new integration tests for retrieval after create/update operations).
-- Persistence remains in JSON files (`data/thoughts.json`, `data/plans.json`).
+- Added list retrieval for thoughts and plans, sorted asc by timestamp; empty [].
+- GET /thoughts: 200 array sorted asc.
+- GET /plans: 200 array sorted asc.
+- Test coverage: v1.3.test.js covers GET retrieval (empty, after create/update, multiple sorted, persistence/integration), regressions.
 
 ## v1.4 - Thought-Plan Linking
 
-### Features Implemented
-
-- Added optional `plan_id` (string) field to the thought schema. This allows thoughts to be associated with a specific plan.
-- The `POST /thoughts` endpoint now accepts an optional `plan_id` in the request body and stores it if provided. If not provided, the field is omitted.
-- New `GET /plans/:id/thoughts` endpoint: Retrieves all thoughts linked to the specified plan ID, filtered by `plan_id`, sorted ascending by timestamp. Returns an empty array `[]` for a valid plan ID with no linked thoughts. Returns 404 Not Found if the plan ID does not exist.
-
-### Usage Instructions
-
-- Create a thought linked to a plan:  
-  `curl -X POST http://localhost:3000/thoughts -H "Content-Type: application/json" -d '{"content": "My linked thought", "plan_id": "123"}'`
-
-- Retrieve thoughts for a specific plan:  
-  `curl http://localhost:3000/plans/123/thoughts`
-
-- Note: For a valid plan ID with no linked thoughts, the response is `[]`. If the plan ID does not exist, the endpoint returns 404 Not Found.
-
-### Notable Changes
-
-- Enhanced linking between plans and thoughts to support organized retrieval and association.
-- No breaking changes to existing endpoints (v1.0-v1.3 functionality preserved).
-- Builds on v1.3 with 24 passing tests, including new integration tests for linking, filtering, and edge cases (e.g., empty results, invalid IDs).
+- Optional plan_id in thoughts. Retrieve linked thoughts per plan.
+- POST /thoughts: { "content", "plan_id"?: number } (no validation) -> 201 includes plan_id if provided.
+- GET /plans/:id/thoughts: 200 filtered/sorted asc array or [], 404 invalid plan.
+- Test coverage: v1.4.test.js covers POST with/without plan_id (invalid allowed), GET linked (empty/filtered/sorted), persistence, regressions.
 
 ## v1.5 - Plan Changelog
 
-### Features Implemented
-
-- Added `changelog` array to the plan schema, initialized as an empty array. Each entry is an object with `timestamp` (ISO string) and `entry` (string).
-- New **PATCH /plans/:id/changelog** endpoint: Appends a new timestamped entry to the plan's changelog. 
-  - **Request Body**: `{ "entry": "string" }` (required, non-empty).
-  - **Response**: 200 OK, the full updated plan object (including the new changelog entry).
-  - **Errors**:
-    - 400 Bad Request if `entry` is missing or empty.
-    - 404 Not Found if the plan ID does not exist.
-  - **Behavior**: If the plan does not exist, it is not created (unlike POST /plans). The changelog is initialized as `[]` if absent. Builds on existing plan retrieval and update logic.
-  - **Persistence**: Updates are saved to `data/plans.json`.
-
-### Usage Instructions
-
-- Append to a plan's changelog:  
-  `curl -X PATCH http://localhost:3000/plans/123/changelog -H "Content-Type: application/json" -d '{"entry": "New update"}'`
-  
-- Response includes the full updated plan, e.g., `{ "id": 123, ..., "changelog": [{ "timestamp": "2025-09-30T22:56:00.000Z", "entry": "New update" }] }`.
-
-- Edge cases:
-  - Empty entry: Returns 400 Bad Request.
-  - Invalid plan ID: Returns 404 Not Found.
-  - Multiple appends: Each adds a new timestamped entry to the array.
-
-### Notable Changes
-
-- Introduced changelog tracking for plans to log updates over time.
-- No breaking changes to existing endpoints (v1.0-v1.4 functionality preserved).
-- Builds on v1.4 with 29 passing tests, including new tests for append operations, multiple entries, 400/404 error handling, and integration with GET /plans.
+- Audit trail via changelog array in plans (append-only entries with timestamps).
+- PATCH /plans/:id/changelog: { "entry": "string" } (required, non-empty) -> 200 full plan with changelog appended.
+- Test coverage: v1.5.test.js covers PATCH append (valid/invalid, multiple, non-existent), retrieval includes changelog, integration with status, regressions.
 
 ## v1.6 - Context Window
 
@@ -283,3 +190,43 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - Introduced basic query parameter filtering for plans (`?status`) and thoughts (`?limit`), enabling targeted retrieval without breaking existing behaviors.
 - No breaking changes to any APIs or external interfaces (previous endpoints and default behaviors preserved).
 - Builds on v1.7 with 62 passing tests, including dedicated `v1.8.test.js` for new features, edge cases, and full integration.
+
+## v1.9 - Timestamp Queries
+
+### Features Implemented
+
+- Updated **GET /plans** endpoint to support optional `?since=ISO string` query parameter for timestamp-based filtering.
+  - **Description**: Filters plans where `timestamp >=` the parsed ISO date (if valid). Returns all plans if no parameter or invalid date provided. Results are always sorted ascending by `timestamp`. Empty array `[]` if no matches.
+  - **Response**: 200 OK, filtered array of plans (empty `[]` if no matches).
+  - **Notes**: Builds on v1.3 and v1.8 retrieval/filtering. Invalid dates (e.g., malformed ISO) or future dates (no matches) return all plans. No request body.
+
+- Updated **GET /thoughts** endpoint to support optional `?since=ISO string` query parameter for timestamp-based filtering.
+  - **Description**: Filters thoughts where `timestamp >=` the parsed ISO date (if valid). Returns all thoughts if no parameter or invalid date provided. Results are always sorted ascending by `timestamp`. Empty array `[]` if no matches.
+  - **Response**: 200 OK, filtered array of thoughts (empty `[]` if no matches).
+  - **Notes**: Builds on v1.3 and v1.8 retrieval/limiting. Invalid dates or future dates (no matches) return all thoughts. No request body.
+
+- Parameter combinations:
+  - For plans: `?since` applied first (timestamp filter), then `?status` (if provided), then sort ascending by `timestamp`.
+  - For thoughts: `?since` applied first (timestamp filter), then `?limit` (if provided), then sort ascending by `timestamp`.
+  - Multiple params can be combined (e.g., `?since=...&status=...` for plans); filters applied in order: since, then status/limit, then sort. Invalid params ignored individually.
+
+- All other endpoints (v1.0-v1.8) remain unchanged.
+- Added separate `v1.9.test.js` file with 11 targeted tests covering timestamp filtering, combinations with existing params, edge cases (e.g., invalid dates, future dates, no matches), and integration; full test suite passes (73 tests total).
+
+### Usage Instructions
+
+- Start the server: `node server.js` (runs on `http://localhost:3000`).
+
+- Retrieve plans since a specific date: `curl "http://localhost:3000/plans?since=2023-01-01T00:00:00.000Z"`
+
+- Retrieve thoughts since a specific date, limited to 5: `curl "http://localhost:3000/thoughts?since=2023-01-01T00:00:00.000Z&limit=5"`
+
+- Retrieve in-progress plans since a date: `curl "http://localhost:3000/plans?since=2023-01-01T00:00:00.000Z&status=in_progress"`
+
+- Notes: Invalid date (e.g., `?since=invalid`) returns all items (as if no param). Future dates or no matches return `[]`. Sorting (ascending by `timestamp`) is always preserved. Empty results return `[]`.
+
+### Notable Changes
+
+- Introduced timestamp-based filtering (`?since=ISO string`) for both plans and thoughts, enabling retrieval of items created after a specific date while preserving combinations with existing params (`?status` for plans, `?limit` for thoughts) and sorting.
+- No breaking changes to any APIs or external interfaces (previous endpoints and default behaviors preserved; invalid/no `?since` returns all as before).
+- Builds on v1.8 with 73 passing tests, including dedicated `v1.9.test.js` for new features, edge cases, and full integration.
