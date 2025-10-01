@@ -336,13 +336,26 @@ async function createApp({ skipMigration = false } = {}) {
   localApp.get('/plans', async (req, res) => {
     try {
       const validStatuses = ['proposed', 'in_progress', 'completed'];
-      let sql = "SELECT * FROM plans ORDER BY timestamp ASC";
-      let params = [];
-      if (req.query.status && validStatuses.includes(req.query.status)) {
-        sql = "SELECT * FROM plans WHERE status = ? ORDER BY timestamp ASC";
-        params = [req.query.status];
+      let whereClauses = [];
+      let sqlParams = [];
+      const since = req.query.since;
+      if (since) {
+        const sinceDate = new Date(since);
+        if (!isNaN(sinceDate.getTime())) {
+          whereClauses.push("timestamp >= ?");
+          sqlParams.push(since);
+        }
       }
-      let plans = await getAll(localDb, sql, params);
+      if (req.query.status && validStatuses.includes(req.query.status)) {
+        whereClauses.push("status = ?");
+        sqlParams.push(req.query.status);
+      }
+      let sql = "SELECT * FROM plans";
+      if (whereClauses.length > 0) {
+        sql += " WHERE " + whereClauses.join(" AND ");
+      }
+      sql += " ORDER BY timestamp ASC";
+      let plans = await getAll(localDb, sql, sqlParams);
       plans = plans.map(p => ({
         id: p.id,
         title: p.title,
@@ -388,9 +401,22 @@ async function createApp({ skipMigration = false } = {}) {
   // GET /thoughts
   localApp.get('/thoughts', async (req, res) => {
     try {
-      let sql = "SELECT * FROM thoughts ORDER BY timestamp ASC";
-      let params = [];
-      let rawThoughts = await getAll(localDb, sql, params);
+      const since = req.query.since;
+      let whereClauses = [];
+      let sqlParams = [];
+      if (since) {
+        const sinceDate = new Date(since);
+        if (!isNaN(sinceDate.getTime())) {
+          whereClauses.push("timestamp >= ?");
+          sqlParams.push(since);
+        }
+      }
+      let sql = "SELECT * FROM thoughts";
+      if (whereClauses.length > 0) {
+        sql += " WHERE " + whereClauses.join(" AND ");
+      }
+      sql += " ORDER BY timestamp ASC";
+      let rawThoughts = await getAll(localDb, sql, sqlParams);
       let thoughts = rawThoughts;
       const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
       if (!isNaN(limitVal)) {
@@ -740,13 +766,26 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
 globalApp.get('/plans', async (req, res) => {
   try {
     const validStatuses = ['proposed', 'in_progress', 'completed'];
-    let sql = "SELECT * FROM plans ORDER BY timestamp ASC";
-    let params = [];
-    if (req.query.status && validStatuses.includes(req.query.status)) {
-      sql = "SELECT * FROM plans WHERE status = ? ORDER BY timestamp ASC";
-      params = [req.query.status];
+    let whereClauses = [];
+    let sqlParams = [];
+    const since = req.query.since;
+    if (since) {
+      const sinceDate = new Date(since);
+      if (!isNaN(sinceDate.getTime())) {
+        whereClauses.push("timestamp >= ?");
+        sqlParams.push(since);
+      }
     }
-    let plans = await getAll(globalDb, sql, params);
+    if (req.query.status && validStatuses.includes(req.query.status)) {
+      whereClauses.push("status = ?");
+      sqlParams.push(req.query.status);
+    }
+    let sql = "SELECT * FROM plans";
+    if (whereClauses.length > 0) {
+      sql += " WHERE " + whereClauses.join(" AND ");
+    }
+    sql += " ORDER BY timestamp ASC";
+    let plans = await getAll(globalDb, sql, sqlParams);
     plans = plans.map(p => ({
       id: p.id,
       title: p.title,
@@ -790,9 +829,22 @@ globalApp.get('/plans/:id/thoughts', async (req, res) => {
 
 globalApp.get('/thoughts', async (req, res) => {
   try {
-    let sql = "SELECT * FROM thoughts ORDER BY timestamp ASC";
-    let params = [];
-    let rawThoughts = await getAll(globalDb, sql, params);
+    const since = req.query.since;
+    let whereClauses = [];
+    let sqlParams = [];
+    if (since) {
+      const sinceDate = new Date(since);
+      if (!isNaN(sinceDate.getTime())) {
+        whereClauses.push("timestamp >= ?");
+        sqlParams.push(since);
+      }
+    }
+    let sql = "SELECT * FROM thoughts";
+    if (whereClauses.length > 0) {
+      sql += " WHERE " + whereClauses.join(" AND ");
+    }
+    sql += " ORDER BY timestamp ASC";
+    let rawThoughts = await getAll(globalDb, sql, sqlParams);
     let thoughts = rawThoughts;
     const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
     if (!isNaN(limitVal)) {
