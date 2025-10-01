@@ -70,8 +70,8 @@
 ### **Collaboration Phase**
 
 **v2.3 - Plan Editing API**
-- `PUT /plans/:id` to update title/description
-- Add `last_modified_by: "human" | "agent"` field
+[x] `PUT /plans/:id` to update title/description
+[x] Add `last_modified_by: "human" | "agent"` field
 
 **v2.4 - The "Dirty Flag" System**
 - `needs_review` boolean on plans
