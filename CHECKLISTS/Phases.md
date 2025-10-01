@@ -54,7 +54,7 @@
 
 ### **Human Interface Phase**
 
-**v2.0 - Static HTML UI**
+[x] **v2.0 - Static HTML UI**
 - Single HTML file that reads from SQLite directly
 - Shows plans and thoughts in simple lists
 - No interactivity, just viewing

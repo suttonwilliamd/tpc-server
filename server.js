@@ -637,6 +637,7 @@ async function cleanDB() {
 
 // Attach routes to globalApp (duplicate logic for global)
 globalApp.use(express.json());
+globalApp.use(express.static(path.join(__dirname, 'public')));
 
 // Duplicate POST /thoughts for global
 globalApp.post('/thoughts', async (req, res) => {
@@ -906,6 +907,10 @@ globalApp.get('/context', async (req, res) => {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+globalApp.get('/tpc.db', (req, res) => {
+  res.sendFile(path.join(__dirname, 'data', 'tpc.db'));
 });
 
 if (require.main === module) {
