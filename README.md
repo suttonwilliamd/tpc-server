@@ -262,3 +262,22 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - Jest API tests pass (145 tests).
 - Playwright E2E tests: `e2e/v2.0.test.js` (static compatibility) and `e2e/v2.1.test.js` (dynamic fetch verification, network requests, empty state, no /tpc.db call) (5 tests passing).
 - Full suite: `npm test` (API) && `npx playwright test` (UI).
+
+## v2.2 - Plan Detail Pages
+
+### Features
+- Clickable plan detail pages in the UI: From the plans list, click a plan to view its full details including title, description, status, changelog (as a list with timestamps), and linked thoughts (as a list with content and timestamps).
+- Single-page dynamic rendering using DOM manipulation: Hides main lists, shows detail panel; fetches `/plans/:id` and `/plans/:id/thoughts` on click.
+- Handles loading states, errors, empty changelog/thoughts; includes "Back" button to return to main view.
+- No API changes; backward compatible with v2.1.
+
+### Usage
+- Start server: `node server.js`
+- Visit http://localhost:3000/index.html
+- In the UI, click on any plan item in the plans list to view its details.
+- Use the "Back to Plans" button to return to the main lists view.
+
+### Testing
+- Jest API tests pass (145 tests).
+- Playwright E2E tests: `e2e/v2.0.test.js`, `e2e/v2.1.test.js`, and new `e2e/v2.2.test.js` (verifies click navigation, detail rendering, empty states, error handling, back functionality; 8 tests passing total for UI).
+- Full suite: `npm test` (API) && `npx playwright test` (UI).

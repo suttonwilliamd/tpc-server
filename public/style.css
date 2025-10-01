@@ -56,3 +56,49 @@ small {
 #thoughts-list li {
   background-color: #fff3cd;
 }
+
+/* Detail Panel Styles */
+#detail-panel {
+  display: none;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 30px;
+}
+
+#detail-panel h2, #detail-panel h3 {
+  color: #333;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 5px;
+}
+
+#detail-panel p {
+  margin: 10px 0;
+  line-height: 1.5;
+}
+
+#detail-panel ul {
+  list-style-type: disc;
+  padding-left: 20px;
+}
+
+#detail-panel li {
+  padding: 5px 0;
+  border-bottom: none;
+}
+
+#back-button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 20px;
+  font-size: 16px;
+}
+
+#back-button:hover {
+  background: #0056b3;
+}

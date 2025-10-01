@@ -223,7 +223,7 @@ Create test data, load UI, verify plans and thoughts appear
 Load with empty DB, verify appropriate message
 ```
 
-## **v2.2 - Plan Detail Pages**
+[x] ## **v2.2 - Plan Detail Pages**
 
 **Tests:**
 ```javascript
