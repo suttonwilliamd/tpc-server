@@ -246,3 +246,40 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - `sqlite3` dependency added to `package.json`; install via `npm install`.
 - No breaking changes to any APIs or external interfaces.
 - Full regression test suite (including v1.7-specific migration tests) passes, verifying data integrity post-migration and API consistency.
+
+## v1.8 - Basic Filtering
+
+### Features Implemented
+
+- Updated **GET /plans** endpoint to support optional `?status=string` query parameter for exact match filtering.
+  - **Description**: Filters plans by exact status match ('proposed', 'in_progress', 'completed'). Ignores invalid statuses, returns empty array `[]` if no matches or invalid status provided. Always sorts results ascending by `timestamp`.
+  - **Response**: 200 OK, filtered array of plans (empty `[]` if no matches).
+  - **Notes**: Builds on v1.3 retrieval; preserves sorting. Invalid or missing `status` returns all plans sorted ascending by `timestamp`. No request body.
+
+- Updated **GET /thoughts** endpoint to support optional `?limit=number` query parameter for result limiting.
+  - **Description**: Limits results to the first N thoughts after sorting ascending by `timestamp`. Returns empty array `[]` if limit <= 0; returns all if limit > total or invalid (non-number); ignores non-numeric values.
+  - **Response**: 200 OK, limited array of thoughts (empty `[]` if limit <= 0).
+  - **Notes**: Builds on v1.3 retrieval; preserves sorting. Invalid or missing `limit` returns all thoughts sorted ascending by `timestamp`. No request body.
+
+- All other endpoints (v1.0-v1.7) remain unchanged.
+- Added separate `v1.8.test.js` file with 11 targeted tests covering filtering, limiting, edge cases (e.g., invalid params, no matches, empty results), and integration; full test suite passes (62 tests total).
+
+### Usage Instructions
+
+- Start the server: `node server.js` (runs on `http://localhost:3000`).
+
+- Retrieve in-progress plans only: `curl "http://localhost:3000/plans?status=in_progress"`
+
+- Retrieve first 5 thoughts: `curl "http://localhost:3000/thoughts?limit=5"`
+
+- Retrieve all plans (invalid status ignored): `curl "http://localhost:3000/plans?status=invalid"`
+
+- Retrieve no thoughts (limit <= 0): `curl "http://localhost:3000/thoughts?limit=0"`
+
+- Notes: Invalid query parameters are ignored (e.g., non-numeric `limit` or invalid `status` behaves as if absent). Sorting (ascending by `timestamp`) is always preserved. Empty results return `[]`.
+
+### Notable Changes
+
+- Introduced basic query parameter filtering for plans (`?status`) and thoughts (`?limit`), enabling targeted retrieval without breaking existing behaviors.
+- No breaking changes to any APIs or external interfaces (previous endpoints and default behaviors preserved).
+- Builds on v1.7 with 62 passing tests, including dedicated `v1.8.test.js` for new features, edge cases, and full integration.

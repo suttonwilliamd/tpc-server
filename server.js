@@ -335,7 +335,14 @@ async function createApp({ skipMigration = false } = {}) {
   // GET /plans
   localApp.get('/plans', async (req, res) => {
     try {
-      let plans = await getAll(localDb, "SELECT * FROM plans ORDER BY timestamp ASC");
+      const validStatuses = ['proposed', 'in_progress', 'completed'];
+      let sql = "SELECT * FROM plans ORDER BY timestamp ASC";
+      let params = [];
+      if (req.query.status && validStatuses.includes(req.query.status)) {
+        sql = "SELECT * FROM plans WHERE status = ? ORDER BY timestamp ASC";
+        params = [req.query.status];
+      }
+      let plans = await getAll(localDb, sql, params);
       plans = plans.map(p => ({
         id: p.id,
         title: p.title,
@@ -381,7 +388,18 @@ async function createApp({ skipMigration = false } = {}) {
   // GET /thoughts
   localApp.get('/thoughts', async (req, res) => {
     try {
-      const thoughts = await getAll(localDb, "SELECT * FROM thoughts ORDER BY timestamp ASC");
+      let sql = "SELECT * FROM thoughts ORDER BY timestamp ASC";
+      let params = [];
+      let rawThoughts = await getAll(localDb, sql, params);
+      let thoughts = rawThoughts;
+      const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
+      if (!isNaN(limitVal)) {
+        if (limitVal <= 0) {
+          thoughts = [];
+        } else {
+          thoughts = rawThoughts.slice(0, limitVal);
+        }
+      }
       const responseThoughts = thoughts.map(t => ({
         id: t.id.toString(),
         content: t.content,
@@ -721,7 +739,14 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
 
 globalApp.get('/plans', async (req, res) => {
   try {
-    let plans = await getAll(globalDb, "SELECT * FROM plans ORDER BY timestamp ASC");
+    const validStatuses = ['proposed', 'in_progress', 'completed'];
+    let sql = "SELECT * FROM plans ORDER BY timestamp ASC";
+    let params = [];
+    if (req.query.status && validStatuses.includes(req.query.status)) {
+      sql = "SELECT * FROM plans WHERE status = ? ORDER BY timestamp ASC";
+      params = [req.query.status];
+    }
+    let plans = await getAll(globalDb, sql, params);
     plans = plans.map(p => ({
       id: p.id,
       title: p.title,
@@ -765,7 +790,18 @@ globalApp.get('/plans/:id/thoughts', async (req, res) => {
 
 globalApp.get('/thoughts', async (req, res) => {
   try {
-    const thoughts = await getAll(globalDb, "SELECT * FROM thoughts ORDER BY timestamp ASC");
+    let sql = "SELECT * FROM thoughts ORDER BY timestamp ASC";
+    let params = [];
+    let rawThoughts = await getAll(globalDb, sql, params);
+    let thoughts = rawThoughts;
+    const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
+    if (!isNaN(limitVal)) {
+      if (limitVal <= 0) {
+        thoughts = [];
+      } else {
+        thoughts = rawThoughts.slice(0, limitVal);
+      }
+    }
     const responseThoughts = thoughts.map(t => ({
       id: t.id.toString(),
       content: t.content,
