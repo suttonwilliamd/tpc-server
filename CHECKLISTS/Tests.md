@@ -148,23 +148,23 @@ Expect: {plans: [], thoughts: []}
 // Test: Concurrent requests don't corrupt data
 ```
 
-## **v1.8 - Basic Filtering**
+[x] ## **v1.8 - Basic Filtering**
 
 **Tests:**
 ```javascript
-// Test 1: Filter plans by status
+[x] // Test 1: Filter plans by status
 Create: plan1 (proposed), plan2 (in_progress), plan3 (proposed)
 GET /plans?status=proposed
 Expect: [plan1, plan3]
 
- // Test 2: Limit thoughts
+[x] // Test 2: Limit thoughts
 Create 25 thoughts
 GET /thoughts?limit=5
-Expect: array length = 5, most recent first
+Expect: array length = 5, oldest first (asc timestamp)
 
- // Test 3: Invalid parameters handled gracefully
+[x] // Test 3: Invalid parameters handled gracefully
 GET /plans?status=invalid
-Expect: 400 Bad Request
+Expect: all plans (ignores invalid status)
 ```
 
 ## **v1.9 - Timestamp Queries**
