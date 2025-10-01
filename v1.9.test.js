@@ -15,12 +15,12 @@ describe('v1.9 Timestamp Queries', () => {
     db.close();
   });
 
-  test('GET /plans?since=valid ISO returns plans >= date, sorted asc', async () => {
+  test('GET /plans?since=valid returns plans >= date, sorted asc', async () => {
     const plan1Res = await request(app).post('/plans').send({ title: 'Plan 1', description: 'Desc' }).expect(201);
     await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms for timestamp diff
     const plan2Res = await request(app).post('/plans').send({ title: 'Plan 2', description: 'Desc' }).expect(201);
 
-    const since = plan1Res.body.timestamp;
+    const since = new Date(plan1Res.body.timestamp).getTime();
     const response = await request(app).get(`/plans?since=${since}`).expect(200);
     expect(response.body).toHaveLength(2);
     expect(response.body[0].title).toBe('Plan 1');
@@ -30,10 +30,10 @@ describe('v1.9 Timestamp Queries', () => {
     expect(timestamps[0] < timestamps[1]).toBe(true);
   });
 
-  test('GET /plans?since=valid ISO with no matches returns empty array', async () => {
+  test('GET /plans?since=valid with no matches returns empty array', async () => {
     const planRes = await request(app).post('/plans').send({ title: 'Plan', description: 'Desc' }).expect(201);
 
-    const futureDate = new Date(Date.now() + 10000).toISOString(); // 10s in future
+    const futureDate = Date.now() + 10000; // 10s in future
     const response = await request(app).get(`/plans?since=${futureDate}`).expect(200);
     expect(response.body).toEqual([]);
   });
@@ -55,12 +55,12 @@ describe('v1.9 Timestamp Queries', () => {
     expect(response.body[1].title).toBe('Second');
   });
 
-  test('GET /thoughts?since=valid ISO returns thoughts >= date, sorted asc', async () => {
+  test('GET /thoughts?since=valid returns thoughts >= date, sorted asc', async () => {
     const thought1Res = await request(app).post('/thoughts').send({ content: 'Thought 1' }).expect(201);
     await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
     const thought2Res = await request(app).post('/thoughts').send({ content: 'Thought 2' }).expect(201);
 
-    const since = thought1Res.body.timestamp;
+    const since = new Date(thought1Res.body.timestamp).getTime();
     const response = await request(app).get(`/thoughts?since=${since}`).expect(200);
     expect(response.body).toHaveLength(2);
     expect(response.body[0].content).toBe('Thought 1');
@@ -70,10 +70,10 @@ describe('v1.9 Timestamp Queries', () => {
     expect(timestamps[0] < timestamps[1]).toBe(true);
   });
 
-  test('GET /thoughts?since=valid ISO with no matches returns empty array', async () => {
+  test('GET /thoughts?since=valid with no matches returns empty array', async () => {
     const thoughtRes = await request(app).post('/thoughts').send({ content: 'Thought' }).expect(201);
 
-    const futureDate = new Date(Date.now() + 10000).toISOString();
+    const futureDate = Date.now() + 10000;
     const response = await request(app).get(`/thoughts?since=${futureDate}`).expect(200);
     expect(response.body).toEqual([]);
   });
@@ -103,7 +103,7 @@ describe('v1.9 Timestamp Queries', () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     const plan3Res = await request(app).post('/plans').send({ title: 'Proposed 2', description: 'Desc' }).expect(201);
 
-    const since = plan1Res.body.timestamp;
+    const since = new Date(plan1Res.body.timestamp).getTime();
     const response = await request(app).get(`/plans?since=${since}&status=proposed`).expect(200);
     expect(response.body).toHaveLength(2);
     expect(response.body[0].title).toBe('Proposed 1');
@@ -117,7 +117,7 @@ describe('v1.9 Timestamp Queries', () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     const thought3Res = await request(app).post('/thoughts').send({ content: 'Thought 3' }).expect(201);
 
-    const since = thought2Res.body.timestamp;
+    const since = new Date(thought2Res.body.timestamp).getTime();
     const response = await request(app).get(`/thoughts?since=${since}&limit=1`).expect(200);
     expect(response.body).toHaveLength(1);
     expect(response.body[0].content).toBe('Thought 2');
@@ -129,12 +129,34 @@ describe('v1.9 Timestamp Queries', () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     await request(app).post('/thoughts').send({ content: 'Thought 2' }).expect(201);
 
-    const since = planRes.body.timestamp;
+    const since = new Date(planRes.body.timestamp).getTime();
     const plansRes = await request(app).get(`/plans?since=${since}`).expect(200);
     expect(plansRes.body).toHaveLength(1);
 
     const thoughtsRes = await request(app).get(`/thoughts?since=${since}&limit=2`).expect(200);
     expect(thoughtsRes.body).toHaveLength(2);
     expect(thoughtsRes.body[0].content).toBe('Thought 1');
+  });
+
+  test('schema update is idempotent', async () => {
+    const instance1 = await createApp({ skipMigration: true });
+    const columns1 = await new Promise((res, rej) => {
+      instance1.db.all("PRAGMA table_info(plans)", (err, rows) => {
+        if (err) rej(err);
+        else res(rows.map(r => r.name));
+      });
+    });
+    expect(columns1).toContain('created_at');
+    instance1.db.close();
+
+    const instance2 = await createApp({ skipMigration: true });
+    const columns2 = await new Promise((res, rej) => {
+      instance2.db.all("PRAGMA table_info(plans)", (err, rows) => {
+        if (err) rej(err);
+        else res(rows.map(r => r.name));
+      });
+    });
+    expect(columns2).toContain('created_at');
+    instance2.db.close();
   });
 });
