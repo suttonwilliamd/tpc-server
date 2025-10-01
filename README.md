@@ -281,3 +281,25 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - Jest API tests pass (145 tests).
 - Playwright E2E tests: `e2e/v2.0.test.js`, `e2e/v2.1.test.js`, and new `e2e/v2.2.test.js` (verifies click navigation, detail rendering, empty states, error handling, back functionality; 8 tests passing total for UI).
 - Full suite: `npm test` (API) && `npx playwright test` (UI).
+
+## v2.3 - Plan Editing API
+
+### Features
+- Added `PUT /plans/:id` endpoint for human editing of plan title and/or description (partial updates supported).
+- New schema fields: `last_modified_by` (TEXT, default 'agent') and `last_modified_at` (INTEGER) on plans table.
+- Human edits via PUT set `last_modified_by = 'human'` and update `last_modified_at = Date.now()`.
+- Agent updates (POST /plans, PATCH /plans/:id status, PATCH /plans/:id/changelog) set `last_modified_by = 'agent'`.
+- All GET endpoints (/plans, /plans/:id, /context) now include `created_at`, `last_modified_at`, `last_modified_by` in responses (backward compatible).
+- Schema migration: ALTER TABLE adds new columns if missing; backfills existing plans with 'agent' and created_at values.
+- No UI changes (remains read-only); full backward compatibility with v2.2.
+
+### Usage
+- Update plan title: `curl -X PUT http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"title": "New Title"}'` -> 200 { id, title: "New Title", ..., last_modified_by: "human", last_modified_at: <timestamp> }
+- Update description partially: `curl -X PUT http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"description": "Updated Desc"}'` -> 200 full updated plan.
+- Errors: 400 for empty title or no fields provided; 404 if plan not found.
+- Retrieve updated plan: `curl http://localhost:3000/plans/1` -> includes new fields.
+
+### Testing
+- Jest API tests pass (159 tests total, including new v2.3.test.js: PUT partial/full updates, validation (400 empty/invalid), 404 not found, integration with GET, agent PATCH sets 'agent', backfill for existing data, compatibility with filters (?status, ?since)).
+- Playwright E2E tests unchanged (8 tests passing; UI read-only, no impact).
+- Full suite: `npm test` (API) && `npx playwright test` (UI).

@@ -91,10 +91,14 @@ async function localInitDB(db, dbPath, skipMigration = false) {
             description TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'proposed',
             changelog TEXT DEFAULT '[]',
-            timestamp TEXT NOT NULL
+            timestamp TEXT NOT NULL,
+            created_at INTEGER,
+            last_modified_by TEXT DEFAULT 'agent',
+            last_modified_at INTEGER
           )`, (err) => err ? rej(err) : res());
         })
       ]).then(async () => {
+        console.log(`localInitDB: skipMigration=${skipMigration}`);
         // Add created_at column to plans if not exists
         const planColumns = await new Promise((res, rej) => {
           db.all("PRAGMA table_info(plans)", (err, rows) => {
@@ -102,12 +106,26 @@ async function localInitDB(db, dbPath, skipMigration = false) {
             else res(rows.map(r => r.name));
           });
         });
+        console.log(`localInitDB: plan columns: ${planColumns.join(', ')}`);
         if (!planColumns.includes('created_at')) {
+          console.log('localInitDB: Adding created_at');
           await runSql(db, 'ALTER TABLE plans ADD COLUMN created_at INTEGER');
           await runSql(db, "UPDATE plans SET created_at = CAST(strftime('%s', timestamp) AS INTEGER) * 1000 WHERE created_at IS NULL");
         }
 
+        if (!planColumns.includes('last_modified_by')) {
+          console.log('localInitDB: Adding last_modified_by');
+          await runSql(db, 'ALTER TABLE plans ADD COLUMN last_modified_by TEXT DEFAULT "agent"');
+          await runSql(db, "UPDATE plans SET last_modified_by = 'agent' WHERE last_modified_by IS NULL");
+        }
+        if (!planColumns.includes('last_modified_at')) {
+          console.log('localInitDB: Adding last_modified_at');
+          await runSql(db, 'ALTER TABLE plans ADD COLUMN last_modified_at INTEGER');
+          await runSql(db, "UPDATE plans SET last_modified_at = created_at WHERE last_modified_at IS NULL");
+        }
+
         if (!skipMigration) {
+          console.log('localInitDB: Running migration (JSON import)');
           // Migrate plans if empty
           const planCount = await new Promise((res, rej) => {
             db.get("SELECT COUNT(*) as cnt FROM plans", (err, row) => {
@@ -245,8 +263,8 @@ async function createApp({ skipMigration = false } = {}) {
 
       const createdAt = Date.now();
       const result = await runSql(localDb,
-        "INSERT INTO plans (title, description, status, changelog, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        [title, description, status, changelog, timestamp, createdAt]
+        "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt]
       );
 
       const id = result.lastID;
@@ -273,6 +291,9 @@ async function createApp({ skipMigration = false } = {}) {
         description: plan.description,
         status: plan.status,
         timestamp: plan.timestamp,
+        created_at: plan.created_at,
+        last_modified_at: plan.last_modified_at,
+        last_modified_by: plan.last_modified_by,
         changelog: JSON.parse(plan.changelog)
       };
       res.status(200).json(responsePlan);
@@ -293,7 +314,8 @@ async function createApp({ skipMigration = false } = {}) {
     try {
       const planId = parseInt(req.params.id);
       if (status) {
-        await runSql(localDb, "UPDATE plans SET status = ? WHERE id = ?", [status, planId]);
+        const now = Date.now();
+        await runSql(localDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [status, now, planId]);
       }
 
       const updated = await getOne(localDb, "SELECT status FROM plans WHERE id = ?", [planId]);
@@ -327,7 +349,8 @@ async function createApp({ skipMigration = false } = {}) {
       const timestamp = Date.now();
       changelog.push({ timestamp, change: change.trim() });
 
-      await runSql(localDb, "UPDATE plans SET changelog = ? WHERE id = ?", [JSON.stringify(changelog), planId]);
+      const now = Date.now();
+      await runSql(localDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [JSON.stringify(changelog), now, planId]);
 
       const updatedPlan = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
       const responsePlan = {
@@ -337,6 +360,65 @@ async function createApp({ skipMigration = false } = {}) {
         status: updatedPlan.status,
         timestamp: updatedPlan.timestamp,
         changelog
+      };
+      res.status(200).json(responsePlan);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // PUT /plans/:id
+  localApp.put('/plans/:id', async (req, res) => {
+    const { title, description } = req.body;
+
+    let updateFields = [];
+    let params = [];
+
+    if (title !== undefined) {
+      if (!title || title.trim() === '') {
+        return res.status(400).json({ error: 'Title cannot be empty if provided' });
+      }
+      updateFields.push('title = COALESCE(?, title)');
+      params.push(title.trim());
+    }
+
+    if (description !== undefined) {
+      updateFields.push('description = COALESCE(?, description)');
+      params.push(description);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'At least one field must be provided' });
+    }
+
+    const now = Date.now();
+    const setClause = updateFields.join(', ') + ', last_modified_by = ?, last_modified_at = ?';
+    params.push('human');
+    params.push(now);
+
+    const sql = `UPDATE plans SET ${setClause} WHERE id = ?`;
+    params.push(parseInt(req.params.id));
+
+    try {
+      const planId = parseInt(req.params.id);
+      const result = await runSql(localDb, sql, params);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Plan not found' });
+      }
+
+      const updatedPlan = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+      const responsePlan = {
+        id: updatedPlan.id,
+        title: updatedPlan.title,
+        description: updatedPlan.description,
+        status: updatedPlan.status,
+        timestamp: updatedPlan.timestamp,
+        created_at: updatedPlan.created_at,
+        last_modified_at: updatedPlan.last_modified_at,
+        last_modified_by: updatedPlan.last_modified_by,
+        changelog: JSON.parse(updatedPlan.changelog)
       };
       res.status(200).json(responsePlan);
     } catch (error) {
@@ -372,6 +454,9 @@ async function createApp({ skipMigration = false } = {}) {
         description: p.description,
         status: p.status,
         timestamp: p.timestamp,
+        created_at: p.created_at,
+        last_modified_at: p.last_modified_at,
+        last_modified_by: p.last_modified_by,
         changelog: JSON.parse(p.changelog)
       }));
       console.log(`GET /plans: Returning ${plans.length} plans`);
@@ -457,6 +542,9 @@ async function createApp({ skipMigration = false } = {}) {
         description: p.description,
         status: p.status,
         timestamp: p.timestamp,
+        created_at: p.created_at,
+        last_modified_at: p.last_modified_at,
+        last_modified_by: p.last_modified_by,
         changelog: JSON.parse(p.changelog)
       }));
 
@@ -509,7 +597,10 @@ async function initDB() {
             description TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'proposed',
             changelog TEXT DEFAULT '[]',
-            timestamp TEXT NOT NULL
+            timestamp TEXT NOT NULL,
+            created_at INTEGER,
+            last_modified_by TEXT DEFAULT 'agent',
+            last_modified_at INTEGER
           )`, (err) => err ? rej(err) : res());
         })
       ]).then(async () => {
@@ -523,6 +614,15 @@ async function initDB() {
         if (!planColumns.includes('created_at')) {
           await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN created_at INTEGER');
           await runSql(globalDb, "UPDATE plans SET created_at = CAST(strftime('%s', timestamp) AS INTEGER) * 1000 WHERE created_at IS NULL");
+        }
+
+        if (!planColumns.includes('last_modified_by')) {
+          await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN last_modified_by TEXT DEFAULT "agent"');
+          await runSql(globalDb, "UPDATE plans SET last_modified_by = 'agent' WHERE last_modified_by IS NULL");
+        }
+        if (!planColumns.includes('last_modified_at')) {
+          await runSql(globalDb, 'ALTER TABLE plans ADD COLUMN last_modified_at INTEGER');
+          await runSql(globalDb, "UPDATE plans SET last_modified_at = created_at WHERE last_modified_at IS NULL");
         }
 
         // Same migration logic as local, but for globalDb
@@ -685,8 +785,8 @@ globalApp.post('/plans', async (req, res) => {
 
     const createdAt = Date.now();
     const result = await runSql(globalDb,
-      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [title, description, status, changelog, timestamp, createdAt]
+      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt]
     );
 
     const id = result.lastID;
@@ -712,6 +812,9 @@ globalApp.get('/plans/:id', async (req, res) => {
       description: plan.description,
       status: plan.status,
       timestamp: plan.timestamp,
+      created_at: plan.created_at,
+      last_modified_at: plan.last_modified_at,
+      last_modified_by: plan.last_modified_by,
       changelog: JSON.parse(plan.changelog)
     };
     res.status(200).json(responsePlan);
@@ -731,7 +834,8 @@ globalApp.patch('/plans/:id', async (req, res) => {
   try {
     const planId = parseInt(req.params.id);
     if (status) {
-      await runSql(globalDb, "UPDATE plans SET status = ? WHERE id = ?", [status, planId]);
+      const now = Date.now();
+      await runSql(globalDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [status, 'agent', now, planId]);
     }
 
     const updated = await getOne(globalDb, "SELECT status FROM plans WHERE id = ?", [planId]);
@@ -764,7 +868,8 @@ globalApp.patch('/plans/:id/changelog', async (req, res) => {
     const timestamp = Date.now();
     changelog.push({ timestamp, change: change.trim() });
 
-    await runSql(globalDb, "UPDATE plans SET changelog = ? WHERE id = ?", [JSON.stringify(changelog), planId]);
+    const now = Date.now();
+    await runSql(globalDb, "UPDATE plans SET changelog = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [JSON.stringify(changelog), 'agent', now, planId]);
 
     const updatedPlan = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
     const responsePlan = {
@@ -808,6 +913,9 @@ globalApp.get('/plans', async (req, res) => {
       description: p.description,
       status: p.status,
       timestamp: p.timestamp,
+      created_at: p.created_at,
+      last_modified_at: p.last_modified_at,
+      last_modified_by: p.last_modified_by,
       changelog: JSON.parse(p.changelog)
     }));
     console.log(`GET /plans: Returning ${plans.length} plans`);
@@ -890,6 +998,9 @@ globalApp.get('/context', async (req, res) => {
       description: p.description,
       status: p.status,
       timestamp: p.timestamp,
+      created_at: p.created_at,
+      last_modified_at: p.last_modified_at,
+      last_modified_by: p.last_modified_by,
       changelog: JSON.parse(p.changelog)
     }));
 
