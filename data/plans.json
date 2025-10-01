@@ -1,101 +1,72 @@
 [
   {
-    "id": 1,
-    "title": "Plan A",
-    "description": "Desc A",
-    "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.929Z",
-    "changelog": []
-  },
-  {
-    "id": 2,
-    "title": "Plan B",
-    "description": "Desc B",
-    "status": "in_progress",
-    "timestamp": "2025-09-30T23:10:30.932Z",
-    "changelog": []
-  },
-  {
-    "id": 3,
-    "title": "Test Plan",
-    "description": "Test desc",
-    "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.940Z",
-    "changelog": []
-  },
-  {
-    "id": 4,
-    "title": "Test Plan",
-    "description": "Test desc",
-    "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.951Z",
-    "changelog": []
-  },
-  {
-    "id": 5,
     "title": "Plan 1",
-    "description": "Desc 1",
+    "description": "Description for Plan 1",
     "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.961Z",
-    "changelog": []
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:01.000Z"
   },
   {
-    "id": 6,
     "title": "Plan 2",
-    "description": "Desc 2",
+    "description": "Description for Plan 2",
     "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.965Z",
-    "changelog": []
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:02.000Z"
   },
   {
-    "id": 7,
-    "title": "Test Plan",
-    "description": "Test desc",
-    "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.976Z",
-    "changelog": [
-      {
-        "timestamp": "2025-09-30T23:10:30.980Z",
-        "entry": "Initial entry"
-      }
-    ]
+    "title": "Plan 3",
+    "description": "Description for Plan 3",
+    "status": "in_progress",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:03.000Z"
   },
   {
-    "id": 8,
-    "title": "Test Plan",
-    "description": "Test desc",
+    "title": "Plan 4",
+    "description": "Description for Plan 4",
     "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.984Z",
-    "changelog": [
-      {
-        "timestamp": "2025-09-30T23:10:30.987Z",
-        "entry": "First entry"
-      },
-      {
-        "timestamp": "2025-09-30T23:10:30.990Z",
-        "entry": "Second entry"
-      }
-    ]
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:04.000Z"
   },
   {
-    "id": 9,
-    "title": "Test Plan",
-    "description": "Test desc",
-    "status": "proposed",
-    "timestamp": "2025-09-30T23:10:30.997Z",
-    "changelog": []
+    "title": "Plan 5",
+    "description": "Description for Plan 5",
+    "status": "completed",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:05.000Z"
   },
   {
-    "id": 10,
-    "title": "Test Plan",
-    "description": "Test desc",
+    "title": "Plan 6",
+    "description": "Description for Plan 6",
     "status": "proposed",
-    "timestamp": "2025-09-30T23:10:31.003Z",
-    "changelog": [
-      {
-        "timestamp": "2025-09-30T23:10:31.005Z",
-        "entry": "Test changelog entry"
-      }
-    ]
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:06.000Z"
+  },
+  {
+    "title": "Plan 7",
+    "description": "Description for Plan 7",
+    "status": "proposed",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:07.000Z"
+  },
+  {
+    "title": "Plan 8",
+    "description": "Description for Plan 8",
+    "status": "in_progress",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:08.000Z"
+  },
+  {
+    "title": "Plan 9",
+    "description": "Description for Plan 9",
+    "status": "proposed",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:09.000Z"
+  },
+  {
+    "title": "Plan 10",
+    "description": "Description for Plan 10",
+    "status": "proposed",
+    "changelog": [],
+    "timestamp": "2025-10-01T00:00:10.000Z"
   }
 ]

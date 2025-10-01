@@ -36,10 +36,13 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 ### Project Structure
 - `server.js`: Main Express server.
-- `data/thoughts.json`: JSON storage for thoughts (initially empty array).
-- `data/plans.json`: JSON storage for plans (initially empty array).
+- `data/thoughts.json`: JSON storage for thoughts (initially empty array; deprecated after v1.7 migration).
+- `data/plans.json`: JSON storage for plans (initially empty array; deprecated after v1.7 migration).
+- `data/tpc.db`: SQLite database for thoughts and plans (introduced in v1.7).
 - `thoughts.test.js`: Unit tests using Supertest.
 - `plans.test.js`: Unit tests for plans endpoint using Supertest.
+- `v1.6.test.js`: Integration tests for v1.6 features.
+- `v1.7.test.js`: Regression tests for v1.7 migration and all APIs.
 - `package.json`: Dependencies and scripts.
 
 Future versions will add plans, retrieval, and more features without breaking v1.0 compatibility.
@@ -215,3 +218,31 @@ Future versions will add plans, retrieval, and more features without breaking v1
 - Added context aggregation endpoint (`GET /context`) for retrieving incomplete plans and recent thoughts in a single response.
 - No breaking changes to existing endpoints (v1.0-v1.5 functionality preserved).
 - Builds on v1.5 with 32 passing tests, including a separate `v1.6.test.js` (3 tests: response structure, edge cases like empty data, and integration with plans/thoughts aggregation).
+
+## v1.7 - SQLite Migration
+
+### Features Implemented
+
+- Switched persistence from JSON files (`data/thoughts.json` and `data/plans.json`) to a single SQLite database (`data/tpc.db`).
+- Database table schemas:
+  - `thoughts`: `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `content` (TEXT NOT NULL), `timestamp` (TEXT NOT NULL), `plan_id` (TEXT)
+  - `plans`: `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `title` (TEXT NOT NULL), `description` (TEXT NOT NULL), `status` (TEXT NOT NULL DEFAULT 'proposed'), `timestamp` (TEXT NOT NULL), `changelog` (TEXT DEFAULT '[]')  // changelog stored as JSON string
+- On first server run, automatically migrates existing data from JSON files to SQLite tables (idempotent process: checks for existing data to avoid duplicates; preserves original JSON files but they are no longer actively used).
+- All read and write operations updated to use SQL queries with prepared statements for security and async promises for non-blocking I/O.
+- APIs remain fully unchanged: same endpoints, request bodies, response formats, and behaviors as in v1.6.
+- Added separate `v1.7.test.js` file with comprehensive regression tests covering all APIs, migration logic, and edge cases; full test suite passes (32+ tests total).
+
+### Usage Instructions
+
+- No changes to API usage: All endpoints from v1.0-v1.6 function identically (e.g., POST /thoughts, GET /plans, etc.).
+- Database location: `data/tpc.db` (SQLite file created automatically in the `data/` directory).
+- Migration: Handled automatically and idempotently on the first server start; no manual intervention required. If JSON files exist, data is imported once; subsequent runs use only the database.
+- Setup: Run `npm install` to ensure the new `sqlite3` dependency is installed (added in v1.7 for database operations).
+- Start the server: `node server.js` (runs on `http://localhost:3000`); migration occurs transparently if needed.
+
+### Notable Changes
+
+- Persistence upgraded to SQLite for improved scalability, better handling of concurrent access, and efficient querying compared to JSON files.
+- `sqlite3` dependency added to `package.json`; install via `npm install`.
+- No breaking changes to any APIs or external interfaces.
+- Full regression test suite (including v1.7-specific migration tests) passes, verifying data integrity post-migration and API consistency.
