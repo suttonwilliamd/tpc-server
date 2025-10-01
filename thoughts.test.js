@@ -1,13 +1,18 @@
 const request = require('supertest');
-const fs = require('fs').promises;
-const path = require('path');
-
-const app = require('./server');
-const DATA_FILE = path.join(__dirname, 'data', 'thoughts.json');
+const { createApp } = require('./server');
 
 describe('Thoughts API', () => {
+  let app;
+  let db;
+
   beforeEach(async () => {
-    await fs.writeFile(DATA_FILE, '[]');
+    const instance = await createApp({ skipMigration: true });
+    app = instance.app;
+    db = instance.db;
+  });
+
+  afterEach(() => {
+    db.close();
   });
 
   test('POST /thoughts with valid content succeeds and persists', async () => {
@@ -77,7 +82,7 @@ describe('Thoughts API', () => {
   });
 
   test('GET /thoughts returns thoughts sorted chronologically ascending', async () => {
-    // Create thoughts with different timestamps (simulated by order)
+    // Create thoughts with different timestamps (order implies ascending)
     await request(app)
       .post('/thoughts')
       .send({ content: 'First thought' })
