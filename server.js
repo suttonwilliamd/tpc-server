@@ -354,7 +354,7 @@ async function createApp({ skipMigration = false } = {}) {
       if (whereClauses.length > 0) {
         sql += " WHERE " + whereClauses.join(" AND ");
       }
-      sql += " ORDER BY timestamp ASC";
+      sql += " ORDER BY id ASC";
       let plans = await getAll(localDb, sql, sqlParams);
       plans = plans.map(p => ({
         id: p.id,
@@ -416,16 +416,13 @@ async function createApp({ skipMigration = false } = {}) {
         sql += " WHERE " + whereClauses.join(" AND ");
       }
       sql += " ORDER BY timestamp ASC";
+      const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
+      if (!isNaN(limitVal) && limitVal > 0) {
+        sql += " LIMIT ?";
+        sqlParams.push(limitVal);
+      }
       let rawThoughts = await getAll(localDb, sql, sqlParams);
       let thoughts = rawThoughts;
-      const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
-      if (!isNaN(limitVal)) {
-        if (limitVal <= 0) {
-          thoughts = [];
-        } else {
-          thoughts = rawThoughts.slice(0, limitVal);
-        }
-      }
       const responseThoughts = thoughts.map(t => ({
         id: t.id.toString(),
         content: t.content,
@@ -784,7 +781,7 @@ globalApp.get('/plans', async (req, res) => {
     if (whereClauses.length > 0) {
       sql += " WHERE " + whereClauses.join(" AND ");
     }
-    sql += " ORDER BY timestamp ASC";
+    sql += " ORDER BY id ASC";
     let plans = await getAll(globalDb, sql, sqlParams);
     plans = plans.map(p => ({
       id: p.id,
@@ -844,16 +841,13 @@ globalApp.get('/thoughts', async (req, res) => {
       sql += " WHERE " + whereClauses.join(" AND ");
     }
     sql += " ORDER BY timestamp ASC";
+    const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
+    if (!isNaN(limitVal) && limitVal > 0) {
+      sql += " LIMIT ?";
+      sqlParams.push(limitVal);
+    }
     let rawThoughts = await getAll(globalDb, sql, sqlParams);
     let thoughts = rawThoughts;
-    const limitVal = req.query.limit ? parseInt(req.query.limit) : NaN;
-    if (!isNaN(limitVal)) {
-      if (limitVal <= 0) {
-        thoughts = [];
-      } else {
-        thoughts = rawThoughts.slice(0, limitVal);
-      }
-    }
     const responseThoughts = thoughts.map(t => ({
       id: t.id.toString(),
       content: t.content,
