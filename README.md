@@ -227,3 +227,21 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - Notes: For plans, filters on `created_at` (millis) and sorts by `created_at ASC`. For thoughts, filters on `timestamp` (ISO) and sorts by `timestamp ASC`. Invalid `?since` (non-number) ignored. Future timestamps or no matches return `[]`. Backward compatible with prior endpoints.
 
 - Test coverage: `v1.9.test.js` verifies filtering, sorting, combinations, invalid params, idempotent schema updates, and integration; full suite passes (73 tests total).
+
+## v2.0 - Static HTML UI
+
+### Features
+- Static HTML UI at `/index.html` displaying plans and thoughts lists from SQLite using sql.js for client-side querying.
+- View-only lists: Plans show title and status; Thoughts show content, timestamp, and optional plan ID.
+- Basic styling with inline CSS for readability.
+- No API changes; backward compatible with v1.9.
+
+### Usage
+- Start server: `node server.js`
+- Visit http://localhost:3000/index.html to view the UI.
+- The UI loads the DB binary from `/tpc.db` and queries it client-side.
+
+### Testing
+- Jest API tests pass (145 tests).
+- Playwright E2E tests in `e2e/v2.0.test.js` verify UI loading, title, elements, list counts, and DB route (3 tests passing).
+- Full suite: `npm test` (API) && `npx playwright test` (UI).

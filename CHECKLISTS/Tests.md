@@ -192,17 +192,20 @@ Expect: all plans (ignores invalid, returns all)
 ## **v2.0 - Static HTML UI**
 
 **Tests:**
-```javascript
+[x] ```javascript
 // Test 1: HTML file exists and loads
 GET / (or /index.html)
 Expect: 200 OK, Content-Type: text/html
 
- // Test 2: HTML contains expected elements
+  // Test 2: HTML contains expected elements
 Inspect response body for:
 - <title> containing "TPC Server"
 - Elements with ids like "plans-list", "thoughts-list"
 
- // Test 3: Can load CSS/JS assets
+  // Test 3: Can load CSS/JS assets
+// Test 4: UI loads and displays data from DB via sql.js
+// Test 5: /tpc.db route serves binary DB file
+// Test 6: No error messages in UI
 ```
 
 ## **v2.1 - Read-Only API UI**
