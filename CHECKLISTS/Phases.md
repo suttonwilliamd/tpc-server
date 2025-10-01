@@ -2,13 +2,13 @@
 
 ### **Foundation Phase**
 
-**v1.0 - Basic Thought Logger**
+[x] **v1.0 - Basic Thought Logger**
 - Single `POST /thoughts` endpoint
 - Stores thoughts in a JSON file
 - Returns thought ID
 - No retrieval, just logging
 
-**v1.1 - Basic Plan Creator** 
+[x] **v1.1 - Basic Plan Creator** 
 - Single `POST /plans` endpoint
 - Stores plans in separate JSON file
 - Plan: `id, title, status: "proposed"`
@@ -39,15 +39,15 @@
 
 ### **Data Management Phase**
 
-**v1.7 - SQLite Migration**
+[x] **v1.7 - SQLite Migration**
 - Move from JSON files to SQLite database
 - Same API surface, just better data handling
 
-**v1.8 - Basic Filtering**
+[x] **v1.8 - Basic Filtering**
 - `GET /plans?status=in_progress`
 - `GET /thoughts?limit=20`
 
-**v1.9 - Timestamp Queries**
+[x] **v1.9 - Timestamp Queries**
 - `GET /plans?since=timestamp`
 - `GET /thoughts?since=timestamp`
 - Helps AI get "what's new"
