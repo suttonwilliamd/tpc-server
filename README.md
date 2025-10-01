@@ -164,6 +164,7 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 - No changes to API usage: All endpoints from v1.0-v1.6 function identically (e.g., POST /thoughts, GET /plans, etc.).
 - Database location: `data/tpc.db` (SQLite file created automatically in the `data/` directory).
 - Migration: Handled automatically and idempotently on the first server start; no manual intervention required. If JSON files exist, data is imported once; subsequent runs use only the database.
+- To reset DB: Delete `data/tpc.db` (server recreates empty on next start; JSON migration re-runs if files exist).
 - Setup: Run `npm install` to ensure the new `sqlite3` dependency is installed (added in v1.7 for database operations).
 - Start the server: `node server.js` (runs on `http://localhost:3000`); migration occurs transparently if needed.
 
