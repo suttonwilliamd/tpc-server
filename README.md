@@ -180,13 +180,13 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 ### Features Implemented
 
 - Updated **GET /plans** endpoint to support optional `?status=string` query parameter for exact match filtering.
-  - **Description**: Filters plans by exact status match ('proposed', 'in_progress', 'completed'). Ignores invalid statuses, returns empty array `[]` if no matches or invalid status provided. Always sorts results ascending by `timestamp`.
+  - **Description**: Filters plans by exact status match ('proposed', 'in_progress', 'completed'). Ignores invalid statuses, returns empty array `[]` if no matches. Always sorts results ascending by `id`.
   - **Response**: 200 OK, filtered array of plans (empty `[]` if no matches).
-  - **Notes**: Builds on v1.3 retrieval; preserves sorting. Invalid or missing `status` returns all plans sorted ascending by `timestamp`. No request body.
+  - **Notes**: Builds on v1.3 retrieval; preserves backward compatibility. Invalid or missing `status` returns all plans sorted ascending by `id`. No request body.
 
 - Updated **GET /thoughts** endpoint to support optional `?limit=number` query parameter for result limiting.
-  - **Description**: Limits results to the first N thoughts after sorting ascending by `timestamp`. Returns empty array `[]` if limit <= 0; returns all if limit > total or invalid (non-number); ignores non-numeric values.
-  - **Response**: 200 OK, limited array of thoughts (empty `[]` if limit <= 0).
+  - **Description**: Limits results to the first N thoughts after sorting ascending by `timestamp`. Ignores invalid limits (<=0 or non-number), returns all if invalid or missing.
+  - **Response**: 200 OK, limited array of thoughts (or all if invalid/missing).
   - **Notes**: Builds on v1.3 retrieval; preserves sorting. Invalid or missing `limit` returns all thoughts sorted ascending by `timestamp`. No request body.
 
 - All other endpoints (v1.0-v1.7) remain unchanged.
@@ -202,9 +202,9 @@ Run `npm test` to execute Jest tests verifying the endpoint functionality.
 
 - Retrieve all plans (invalid status ignored): `curl "http://localhost:3000/plans?status=invalid"`
 
-- Retrieve no thoughts (limit <= 0): `curl "http://localhost:3000/thoughts?limit=0"`
+- Retrieve all thoughts (ignores limit <= 0): `curl "http://localhost:3000/thoughts?limit=0"`
 
-- Notes: Invalid query parameters are ignored (e.g., non-numeric `limit` or invalid `status` behaves as if absent). Sorting (ascending by `timestamp`) is always preserved. Empty results return `[]`.
+- Notes: Invalid query parameters are ignored (e.g., non-numeric `limit` or invalid `status` behaves as if absent; limit <=0 returns all). For /plans, sorting ascending by `id`; for /thoughts, by `timestamp`. Empty results return `[]`.
 
 ### Notable Changes
 

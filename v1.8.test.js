@@ -74,18 +74,20 @@ describe('v1.8 Basic Filtering', () => {
     expect(response.body).toHaveLength(3);
   });
 
-  test('GET /thoughts?limit=0 returns empty array', async () => {
+  test('GET /thoughts?limit=0 ignores and returns all', async () => {
     await request(app).post('/thoughts').send({ content: 'Test' }).expect(201);
-
+  
     const response = await request(app).get('/thoughts?limit=0').expect(200);
-    expect(response.body).toEqual([]);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0].content).toBe('Test');
   });
 
-  test('GET /thoughts?limit=-1 returns empty array', async () => {
+  test('GET /thoughts?limit=-1 ignores and returns all', async () => {
     await request(app).post('/thoughts').send({ content: 'Test' }).expect(201);
-
+  
     const response = await request(app).get('/thoughts?limit=-1').expect(200);
-    expect(response.body).toEqual([]);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0].content).toBe('Test');
   });
 
   test('GET /thoughts?limit=invalid ignores and returns all', async () => {
