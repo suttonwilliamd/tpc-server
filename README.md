@@ -30,3 +30,18 @@ Run `npx playwright test` for E2E UI tests.
 - Create a plan: `curl -X POST http://localhost:3000/plans -H "Content-Type: application/json" -d '{"title": "My Plan", "description": "Plan details"}'`
 - Update plan status: `curl -X PATCH http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"status": "in_progress"}'`
 - View UI: Visit http://localhost:3000/index.html after starting the server.
+
+## v2.5 - Agent Review System
+
+### Features Implemented
+- `GET /plans?needs_review=true`: Filters plans that require review.
+- `PATCH /plans/:id` with body `{"needs_review": false}`: Clears the review flag (sets `needs_review` to 0).
+- `GET /context`: Now includes the `needs_review` field for incomplete plans.
+
+### Usage
+- Retrieve plans needing review: `curl "http://localhost:3000/plans?needs_review=true"`
+- Clear review flag for a plan: `curl -X PATCH http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"needs_review": false}'`
+
+### Notable Changes
+- No database schema changes.
+- Builds directly on v2.4 functionality.
