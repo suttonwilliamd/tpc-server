@@ -3,5 +3,45 @@
     "content": "Initial thought",
     "timestamp": "2025-10-01T00:00:00.000Z",
     "plan_id": null
+  },
+  {
+    "id": "design-001",
+    "content": "Selected Node.js/Express for backend, SQLite for database, vanilla JS for frontend, and Jest/Playwright for testing to ensure simplicity and rapid development.",
+    "timestamp": "2025-10-01T13:54:28.114Z",
+    "category": "design-decision",
+    "metadata": {"source": "DESIGN_DECISIONS.md"},
+    "plan_id": null
+  },
+  {
+    "id": "design-002",
+    "content": "Adopted RESTful API design with stateless endpoints for plans and thoughts, including context simulation for AI-human workflow, and single server.js for code reuse.",
+    "timestamp": "2025-10-01T13:54:29.114Z",
+    "category": "design-decision",
+    "metadata": {"source": "DESIGN_DECISIONS.md"},
+    "plan_id": null
+  },
+  {
+    "id": "design-003",
+    "content": "Modeled plans with fields like status, changelog as JSON, and needs_review flag; thoughts with optional plan_id linkage without strict FK constraints for flexibility.",
+    "timestamp": "2025-10-01T13:54:30.114Z",
+    "category": "design-decision",
+    "metadata": {"source": "DESIGN_DECISIONS.md"},
+    "plan_id": null
+  },
+  {
+    "id": "design-004",
+    "content": "Implemented unit/integration tests with Jest using Supertest and E2E tests with Playwright for UI validation, focusing on regression and data flow integrity.",
+    "timestamp": "2025-10-01T13:54:31.114Z",
+    "category": "design-decision",
+    "metadata": {"source": "DESIGN_DECISIONS.md"},
+    "plan_id": null
+  },
+  {
+    "id": "design-005",
+    "content": "Prioritized incremental micro-versions, separation of concerns between API/UI/DB, and overall simplicity with minimal dependencies for rapid iteration and reliability.",
+    "timestamp": "2025-10-01T13:54:32.114Z",
+    "category": "design-decision",
+    "metadata": {"source": "DESIGN_DECISIONS.md"},
+    "plan_id": null
   }
 ]

@@ -24,7 +24,7 @@ describe('v1.7 SQLite Migration - Migration Tests', () => {
     const thoughtsResponse = await request(app).get('/thoughts');
     expect(thoughtsResponse.status).toBe(200);
     expect(Array.isArray(thoughtsResponse.body)).toBe(true);
-    expect(thoughtsResponse.body.length).toBe(1); // From thoughts.json
+    expect(thoughtsResponse.body.length).toBe(6); // From current thoughts.json (initial + design decisions)
   });
 
   afterAll(() => {
