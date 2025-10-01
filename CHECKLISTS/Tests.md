@@ -291,22 +291,22 @@ Expect: plans with needs_review
 
 Full suite passes: npm test (167 tests) && npx playwright test (8 UI tests, unchanged).
 
-## **v2.5 - Agent Review System**
+[x] ## **v2.5 - Agent Review System**
 
 **Tests:**
 ```javascript
-// Test 1: Can filter by needs_review
+[x] // Test 1: Can filter by needs_review (unit tests for filtering)
 Create plans with different needs_review values
 GET /plans?needs_review=true
 Expect: only plans with needs_review=true
 
- // Test 2: Agent can clear flag
+[x]  // Test 2: Agent can clear flag (unit tests for PATCH)
 PATCH /plans/1
 Body: {"needs_review": false}
 GET /plans/1
 Expect: {needs_review: false}
 
- // Test 3: Context endpoint includes needs_review plans
+[x]  // Test 3: Context endpoint includes needs_review plans (unit tests for context)
 GET /context
 Expect: includes plans with needs_review=true in plans array
 ```

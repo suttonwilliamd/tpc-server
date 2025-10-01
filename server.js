@@ -310,27 +310,81 @@ async function createApp({ skipMigration = false } = {}) {
     }
   });
 
-  // PATCH /plans/:id - Update status
+  // PATCH /plans/:id - Update status and needs_review
   localApp.patch('/plans/:id', async (req, res) => {
-    const { status } = req.body;
+    const { status, needs_review } = req.body;
     const validStatuses = ['proposed', 'in_progress', 'completed'];
     if (status && !validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status. Must be one of: proposed, in_progress, completed' });
     }
 
+    const planId = parseInt(req.params.id);
+    let doUpdate = false;
+    let updateFields = [];
+    let params = [];
+
+    if (status !== undefined) {
+      updateFields.push('status = ?');
+      params.push(status);
+      doUpdate = true;
+    }
+
+    if (needs_review !== undefined) {
+      const nrValue = needs_review ? 1 : 0;
+      updateFields.push('needs_review = ?');
+      params.push(nrValue);
+      doUpdate = true;
+    } else if (status !== undefined) {
+      updateFields.push('needs_review = ?');
+      params.push(0);
+    }
+
     try {
-      const planId = parseInt(req.params.id);
-      if (status) {
+      let updatedPlan;
+      if (doUpdate) {
         const now = Date.now();
-        await runSql(localDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [status, now, planId]);
+        updateFields.push('last_modified_by = ?');
+        updateFields.push('last_modified_at = ?');
+        params.push('agent');
+        params.push(now);
+
+        const sql = `UPDATE plans SET ${updateFields.join(', ')} WHERE id = ?`;
+        params.push(planId);
+
+        const result = await runSql(localDb, sql, params);
+
+        if (result.changes === 0) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+
+        updatedPlan = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+      } else {
+        // No update, fetch current
+        const current = await getOne(localDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+        if (!current) {
+          return res.status(404).json({ error: 'Plan not found' });
+        }
+        updatedPlan = current;
       }
 
-      const updated = await getOne(localDb, "SELECT status FROM plans WHERE id = ?", [planId]);
-      if (!updated) {
-        return res.status(404).json({ error: 'Plan not found' });
-      }
+      const responsePlan = {
+        id: updatedPlan.id,
+        title: updatedPlan.title,
+        description: updatedPlan.description,
+        status: updatedPlan.status,
+        timestamp: updatedPlan.timestamp,
+        created_at: updatedPlan.created_at,
+        last_modified_at: updatedPlan.last_modified_at,
+        last_modified_by: updatedPlan.last_modified_by,
+        needs_review: updatedPlan.needs_review,
+        changelog: JSON.parse(updatedPlan.changelog)
+      };
 
-      res.status(200).json({ status: updated.status });
+      if (needs_review !== undefined) {
+        res.status(200).json(responsePlan);
+      } else {
+        res.status(200).json({ status: updatedPlan.status });
+      }
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Internal server error' });
@@ -453,6 +507,9 @@ async function createApp({ skipMigration = false } = {}) {
       if (req.query.status && validStatuses.includes(req.query.status)) {
         whereClauses.push("status = ?");
         sqlParams.push(req.query.status);
+      }
+      if (req.query.needs_review === 'true') {
+        whereClauses.push("needs_review = 1");
       }
       let sql = "SELECT * FROM plans";
       if (whereClauses.length > 0) {
@@ -845,25 +902,79 @@ globalApp.get('/plans/:id', async (req, res) => {
 });
 
 globalApp.patch('/plans/:id', async (req, res) => {
-  const { status } = req.body;
+  const { status, needs_review } = req.body;
   const validStatuses = ['proposed', 'in_progress', 'completed'];
   if (status && !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be one of: proposed, in_progress, completed' });
   }
 
+  const planId = parseInt(req.params.id);
+  let doUpdate = false;
+  let updateFields = [];
+  let params = [];
+
+  if (status !== undefined) {
+    updateFields.push('status = ?');
+    params.push(status);
+    doUpdate = true;
+  }
+
+  if (needs_review !== undefined) {
+    const nrValue = needs_review ? 1 : 0;
+    updateFields.push('needs_review = ?');
+    params.push(nrValue);
+    doUpdate = true;
+  } else if (status !== undefined) {
+    updateFields.push('needs_review = ?');
+    params.push(0);
+  }
+
   try {
-    const planId = parseInt(req.params.id);
-    if (status) {
+    let updatedPlan;
+    if (doUpdate) {
       const now = Date.now();
-      await runSql(globalDb, "UPDATE plans SET status = ?, last_modified_by = 'agent', last_modified_at = ?, needs_review = 0 WHERE id = ?", [status, now, planId]);
+      updateFields.push('last_modified_by = ?');
+      updateFields.push('last_modified_at = ?');
+      params.push('agent');
+      params.push(now);
+
+      const sql = `UPDATE plans SET ${updateFields.join(', ')} WHERE id = ?`;
+      params.push(planId);
+
+      const result = await runSql(globalDb, sql, params);
+
+      if (result.changes === 0) {
+        return res.status(404).json({ error: 'Plan not found' });
+      }
+
+      updatedPlan = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+    } else {
+      // No update, fetch current
+      const current = await getOne(globalDb, "SELECT * FROM plans WHERE id = ?", [planId]);
+      if (!current) {
+        return res.status(404).json({ error: 'Plan not found' });
+      }
+      updatedPlan = current;
     }
 
-    const updated = await getOne(globalDb, "SELECT status FROM plans WHERE id = ?", [planId]);
-    if (!updated) {
-      return res.status(404).json({ error: 'Plan not found' });
-    }
+    const responsePlan = {
+      id: updatedPlan.id,
+      title: updatedPlan.title,
+      description: updatedPlan.description,
+      status: updatedPlan.status,
+      timestamp: updatedPlan.timestamp,
+      created_at: updatedPlan.created_at,
+      last_modified_at: updatedPlan.last_modified_at,
+      last_modified_by: updatedPlan.last_modified_by,
+      needs_review: updatedPlan.needs_review,
+      changelog: JSON.parse(updatedPlan.changelog)
+    };
 
-    res.status(200).json({ status: updated.status });
+    if (needs_review !== undefined) {
+      res.status(200).json(responsePlan);
+    } else {
+      res.status(200).json({ status: updatedPlan.status });
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -984,6 +1095,9 @@ globalApp.get('/plans', async (req, res) => {
     if (req.query.status && validStatuses.includes(req.query.status)) {
       whereClauses.push("status = ?");
       sqlParams.push(req.query.status);
+    }
+    if (req.query.needs_review === 'true') {
+      whereClauses.push("needs_review = 1");
     }
     let sql = "SELECT * FROM plans";
     if (whereClauses.length > 0) {

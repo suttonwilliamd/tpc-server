@@ -80,10 +80,10 @@
 [x] GET responses include needs_review
 [x] Schema migration and backfill to 0
 
-**v2.5 - Agent Review System**
-- `GET /plans?needs_review=true` 
-- Agent checks this during context gathering
-- Agent clears flag after reviewing
+[x] **v2.5 - Agent Review System**
+[x] `GET /plans?needs_review=true` filtering
+[x] `PATCH /plans/:id` for `needs_review=false/true` (agent clearing flag)
+[x] `GET /context` including `needs_review` visibility (context integration)
 
 ### **Polish Phase**
 
