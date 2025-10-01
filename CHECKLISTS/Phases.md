@@ -27,7 +27,7 @@
 - Thoughts can reference plan IDs
 - `GET /plans/:id/thoughts` to see related thoughts
 
-**v1.5 - Plan Changelog**
+[x] **v1.5 - Plan Changelog**
 - Add `changelog` array to plans
 - `PATCH /plans/:id/changelog` to append change entries
 
