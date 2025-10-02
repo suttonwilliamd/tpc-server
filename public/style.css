@@ -100,5 +100,60 @@ small {
 }
 
 #back-button:hover {
-  background: #0056b3;
+    background: #0056b3;
+}
+
+/* Markdown styles for plan description */
+.markdown-body {
+  line-height: 1.6;
+  color: #333;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: bold;
+}
+
+.markdown-body p {
+  margin-bottom: 1em;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin-bottom: 1em;
+  padding-left: 2em;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25em;
+}
+
+.markdown-body strong {
+  font-weight: bold;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+.markdown-body code {
+  background-color: #f4f4f4;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.markdown-body pre {
+  background-color: #f4f4f4;
+  padding: 1em;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid #ddd;
+  margin: 1em 0;
+  padding-left: 1em;
+  color: #666;
 }

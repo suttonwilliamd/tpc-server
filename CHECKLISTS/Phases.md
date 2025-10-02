@@ -87,9 +87,9 @@
 
 ### **Polish Phase**
 
-**v2.6 - Rich Text Support**
-- Markdown support in plan descriptions
-- Better formatting in UI
+[x] **v2.6 - Rich Text Support**
+- Implemented Markdown in descriptions: API stores/retrieves raw Markdown via PUT/GET /plans/:id
+- UI renders Markdown as HTML in detail view using marked.js
 
 **v2.7 - Search & Organization**
 - Full-text search on thoughts/plans

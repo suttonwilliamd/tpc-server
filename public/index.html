@@ -25,7 +25,7 @@
     
     <div id="detail-panel" style="display: none;">
         <h2 id="plan-title"></h2>
-        <p id="plan-description"></p>
+        <div id="plan-description" class="plan-description markdown-body"></div>
         <p><strong>Status:</strong> <span id="plan-status"></span></p>
         <h3>Changelog</h3>
         <ul id="changelog-list"></ul>
@@ -34,6 +34,7 @@
         <button id="back-button">Back to Plans</button>
     </div>
     
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="index.js"></script>
 </body>
 </html>

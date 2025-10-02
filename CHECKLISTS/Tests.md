@@ -311,7 +311,7 @@ GET /context
 Expect: includes plans with needs_review=true in plans array
 ```
 
-## **v2.6 - Rich Text Support**
+[x] ## **v2.6 - Rich Text Support**
 
 **Tests:**
 ```javascript

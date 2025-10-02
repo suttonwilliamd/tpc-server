@@ -31,6 +31,11 @@ Run `npx playwright test` for E2E UI tests.
 - Update plan status: `curl -X PATCH http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"status": "in_progress"}'`
 - View UI: Visit http://localhost:3000/index.html after starting the server.
 
+When editing plans, use Markdown syntax in descriptions for formatting (e.g., **bold** text).
+
+## Features
+- Rich text support: Plan descriptions accept and display Markdown formatting (bold, lists, etc.) in the UI.
+
 ## v2.5 - Agent Review System
 
 ### Features Implemented
