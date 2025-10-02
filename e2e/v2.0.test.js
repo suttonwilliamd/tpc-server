@@ -9,7 +9,7 @@ test.describe('v2.0 Static UI', () => {
     await expect(page.locator('#thoughts-list')).toBeVisible();
     // Since DB has migrated data, expect at least one item in each list
     await expect(page.locator('#plans-list li')).toHaveCount(10);
-    await expect(page.locator('#thoughts-list li')).toHaveCount(1);
+    await expect(page.locator('#thoughts-list li')).toHaveCount(6);
   });
 
   test('serves /tpc.db binary file', async ({ request }) => {
