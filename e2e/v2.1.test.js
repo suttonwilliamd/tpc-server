@@ -27,10 +27,13 @@ test.describe('v2.1 Dynamic API UI', () => {
     // Wait for loading to finish (no "Loading..." text)
     await expect(page.locator('#plans-list li:has-text("Loading...")')).toHaveCount(0);
     await expect(page.locator('#thoughts-list li:has-text("Loading...")')).toHaveCount(0);
+    // Additional wait for data attributes to ensure full render
+    await page.waitForSelector('#plans-list li[data-plan-id]');
+    await page.waitForSelector('#thoughts-list li[data-thought-id]');
 
     // Verify data loaded (assuming data exists)
     await expect(page.locator('#plans-list li')).toHaveCount(10); // From migration
-    await expect(page.locator('#thoughts-list li')).toHaveCount(1);
+    await expect(page.locator('#thoughts-list li')).toHaveCount(6);
 
     // Verify no error
     await expect(page.locator('#plans-list li:has-text("Failed to load")')).toHaveCount(0);

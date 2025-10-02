@@ -5,7 +5,10 @@ test.describe('v2.2 Plan Detail Pages', () => {
     await page.goto('http://localhost:3000');
     
     // Wait for plans to load and event listeners ready
+    await page.waitForSelector('#plans-list li[data-plan-id]');
+    await page.waitForSelector('#thoughts-list li[data-thought-id]');
     await expect(page.locator('#plans-list li')).toHaveCount(10);
+    await expect(page.locator('#thoughts-list li')).toHaveCount(6);
     await page.waitForSelector('#plans-list li[data-plan-id]');
     
     // Get first plan ID
@@ -26,17 +29,17 @@ test.describe('v2.2 Plan Detail Pages', () => {
     await expect(thoughtsSection).toHaveCSS('display', 'none');
     
     // Verify plan info loaded
-    await expect(page.locator('#plan-title')).toBeVisible();
-    await expect(page.locator('#plan-title')).not.toHaveText('Loading...');
-    await expect(page.locator('#plan-description')).toBeVisible();
-    await expect(page.locator('#plan-status')).toBeVisible();
+    await expect(page.locator('#detail-title')).toBeVisible();
+    await expect(page.locator('#detail-title')).not.toHaveText('Loading...');
+    await expect(page.locator('#detail-content')).toBeVisible();
+    await expect(page.locator('#detail-status')).toBeVisible();
     
     // Verify changelog list
     const changelogList = page.locator('#changelog-list');
     await expect(changelogList).toBeVisible();
     
     // Verify linked thoughts list visible
-    const thoughtsDetailList = page.locator('#thoughts-list-detail');
+    const thoughtsDetailList = page.locator('#linked-thoughts-list');
     await expect(thoughtsDetailList).toBeVisible();
     
     // Click back
@@ -53,6 +56,8 @@ test.describe('v2.2 Plan Detail Pages', () => {
     await page.goto('http://localhost:3000');
     
     // Wait for list
+    await page.waitForSelector('#plans-list li[data-plan-id]');
+    await page.waitForSelector('#thoughts-list li[data-thought-id]');
     await expect(page.locator('#plans-list li')).toHaveCount(10);
     await page.waitForSelector('#plans-list li[data-plan-id]');
     
@@ -87,18 +92,20 @@ test.describe('v2.2 Plan Detail Pages', () => {
     await expect(changelogList).toHaveText('No changelog entries');
     
     // Verify empty thoughts
-    const thoughtsDetailList = page.locator('#thoughts-list-detail li');
+    const thoughtsDetailList = page.locator('#linked-thoughts-list li');
     await expect(thoughtsDetailList).toHaveText('No linked thoughts');
     
     // Verify plan info
-    await expect(page.locator('#plan-title')).toHaveText('Mock Plan');
-    await expect(page.locator('#plan-description')).toHaveText('Mock description');
+    await expect(page.locator('#detail-title')).toHaveText('Mock Plan');
+    await expect(page.locator('#detail-content')).toHaveText('Mock description');
   });
 
   test('handles error loading plan details', async ({ page }) => {
     await page.goto('http://localhost:3000');
     
     // Wait for list
+    await page.waitForSelector('#plans-list li[data-plan-id]');
+    await page.waitForSelector('#thoughts-list li[data-thought-id]');
     await expect(page.locator('#plans-list li')).toHaveCount(10);
     await page.waitForSelector('#plans-list li[data-plan-id]');
     
@@ -117,7 +124,7 @@ test.describe('v2.2 Plan Detail Pages', () => {
     await page.waitForSelector('#detail-panel', { state: 'visible' });
     
     // Verify error message
-    await expect(page.locator('#plan-title')).toHaveText('Error loading plan details');
-    await expect(page.locator('#plan-description')).toContainText('Failed to fetch plan: 404');
+    await expect(page.locator('#detail-title')).toHaveText('Error loading plan details');
+    await expect(page.locator('#detail-content')).toContainText('Failed to fetch plan: 404');
   });
 });

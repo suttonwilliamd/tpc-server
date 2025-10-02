@@ -321,6 +321,27 @@ Body: {"description": "**Bold** and *italic*"}
 GET /plans/1
 Expect: description contains same markdown
 
+  // Test 2: UI renders markdown as HTML
+Load plan detail, verify <strong>Bold</strong> appears
+
+  // Test 3: Plain text still works
+Verify non-markdown content displays normally
+
+// Regression: All prior E2E tests (v2.0-v2.5) pass after modular refactoring of server.js
+npx playwright test → 11 passed (plans count: 10, thoughts count: 6 from migration)
+npm test → All Jest tests (v1.0-v2.6) pass, confirming unit/integration logic intact post-refactoring
+```
+
+[x] ## **v2.6 - Rich Text Support**
+
+**Tests:**
+```javascript
+// Test 1: Markdown in plan descriptions
+PUT /plans/1
+Body: {"description": "**Bold** and *italic*"}
+GET /plans/1
+Expect: description contains same markdown
+
  // Test 2: UI renders markdown as HTML
 Load plan detail, verify <strong>Bold</strong> appears
 
@@ -330,21 +351,36 @@ Verify non-markdown content displays normally
 
 ## **v2.7 - Search & Organization**
 
-**Tests:**
-```javascript
-// Test 1: Full-text search finds content
-Create thought: "We should use React for the frontend"
-GET /thoughts?q=React
-Expect: array containing the thought
+**Unit Tests (Jest in v2.7.test.js):**
+- **Schema Migration:** Verify idempotent addition of `tags` column to plans/thoughts (no error on re-run; existing rows backfilled to `[]`).
+- **Tagging Operations:**
+  - POST /plans/:id/tags {tags: ["urgent"]} → 200, plan.tags = '["urgent"]'; invalid tags (e.g., uppercase/special chars) normalized or rejected.
+  - PATCH /plans/:id/tags {action: "add", tags: ["high-priority"]} → adds without duplicates; {action: "remove", tags: ["urgent"]} → removes if exists.
+  - Edge: Empty tags array clears all; non-existent ID → 404; invalid action → 400.
+  - Similarly for thoughts.
+- **Search Logic (GET /search):**
+  - q="React" on plan title/desc/thought content/tags → matches partial/case-insensitive (use LIKE or FTS5); relevance score (e.g., term count + tag exact match bonus).
+  - Combined results: {plans: [matched plans sorted by score DESC then timestamp DESC], thoughts: [...], total: N}; ?type=plans → only plans.
+  - ?limit=5 → truncates results; empty q → returns top 20 recent (timestamp DESC, no search).
+  - No results → {plans: [], thoughts: [], total: 0}; ?tags=urgent → filters to tagged items only.
+- **Filtering (GET /plans?tags=):**
+  - ?tags=urgent → plans where JSON tags contains "urgent"; ?tags=urgent,high → AND (both tags present).
+  - Invalid tags ignored; combined with ?status, ?since.
+  - Similarly for thoughts.
+- **Context Enhancement (GET /context?search=):**
+  - ?search="React" → incomplete plans + last 10 thoughts filtered to matches; no param → full as before.
+- **Backward Compatibility:** All pre-v2.7 tests pass (e.g., POST plan without tags succeeds; GET /plans omits tags if not requested).
+- **Optimizations:** Verify indexes created in migration; query performance (mock DB, assert no full scans).
 
- // Test 2: Search across plans and thoughts
-GET /search?q=React
-Expect: {thoughts: [...], plans: [...]}
+**E2E Tests (Playwright in e2e/v2.7.test.js):**
+- Load UI, enter search "React" in input → verify /search request, results render in accordions (plans section shows matched plans with tag badges; thoughts section similar).
+- Test empty query → shows recent/all; no results → "No matches" message.
+- Tag filter: If UI added (e.g., dropdown), select "urgent" → filtered list; click plan detail → shows tags.
+- Integration: Create plan via API, add tag, search by tag → appears in UI; markdown in results renders correctly.
+- Cross-browser: Test rendering on Chrome/Firefox; no console errors.
+- Regression: Existing UI flows (plan list, details, thoughts) unchanged.
 
- // Test 3: Tag filtering
-GET /plans?tags=urgent
-Expect: only plans with "urgent" tag
-```
+Full suite: `npm test` (add ~20 new tests to 167+); `npx playwright test` (add 5-7 new UI tests to 8+). Ensure 100% pass post-v2.7.
 
 ## **v2.8 - The "Endgame"**
 

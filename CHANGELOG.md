@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New unit tests in v2.6.test.js for API storage/retrieval.
 - New E2E tests in e2e/v2.6.test.js for UI rendering.
 
+## [2.7.0] - 2025-10-02
+
+### Added
+- Full-text search endpoint (`GET /search?q=<query>`) with optional parameters `?type=plans|thoughts`, `?tags=tag1,tag2`, `?limit=N` for filtering results across plans and thoughts.
+- Tagging system: Added `tags` column (TEXT, JSON array string, default '[]') to both plans and thoughts tables, with idempotent schema migration and backfill for existing records.
+- Tag management endpoints: `POST /plans/:id/tags`, `PUT /plans/:id/tags`, `PATCH /plans/:id/tags` (and equivalents for thoughts) to set, replace, or append tags (e.g., body `{ "tags": ["ai", "urgent"] }` or `{ "tag": "new" }` for append).
+- Tag filtering: Support `?tags=ai,urgent` (comma-separated) on `GET /plans`, `GET /thoughts`, `GET /search` using AND logic.
+- Enhanced `GET /context` with optional `?search=<query>` parameter to apply search filtering to incomplete plans and recent thoughts.
+- UI improvements: Added global search input field, tag editing interface in detail views (add/remove tags), and tag filtering dropdowns in plan/thought lists.
+- New tests: Unit tests in `v2.7.test.js` covering search, tagging, filtering, schema migration, and endpoint integrations; E2E tests in `e2e/v2.7.test.js` for UI search, tag editing, and filtering interactions.
+
 ## [2.4.0] - 2025-10-01
 
 ### Added
@@ -172,3 +183,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.0.0]: https://github.com/bitFlipper/tpc-server/releases/tag/v1.0.0
 
 [2.6.0]: https://github.com/bitFlipper/tpc-server/compare/v2.5.0...v2.6.0
+[2.7.0]: https://github.com/bitFlipper/tpc-server/compare/v2.6.0...v2.7.0

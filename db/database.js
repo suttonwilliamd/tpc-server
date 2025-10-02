@@ -131,7 +131,8 @@ async function performMigration(db, skipMigration = false) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT,
         content TEXT NOT NULL,
-        plan_id TEXT
+        plan_id TEXT,
+        tags TEXT DEFAULT '[]'
       )`, (err) => err ? rej(err) : res());
     }),
     new Promise((res, rej) => {
@@ -144,7 +145,8 @@ async function performMigration(db, skipMigration = false) {
         timestamp TEXT NOT NULL,
         created_at INTEGER,
         last_modified_by TEXT DEFAULT 'agent',
-        last_modified_at INTEGER
+        last_modified_at INTEGER,
+        tags TEXT DEFAULT '[]'
       )`, (err) => err ? rej(err) : res());
     })
   ]);
@@ -182,6 +184,25 @@ async function performMigration(db, skipMigration = false) {
     await runSql(db, 'ALTER TABLE plans ADD COLUMN needs_review INTEGER DEFAULT 0');
     await runSql(db, "UPDATE plans SET needs_review = 0 WHERE needs_review IS NULL");
   }
+
+  // Get current thought columns
+  const thoughtColumns = await new Promise((res, rej) => {
+    db.all("PRAGMA table_info(thoughts)", (err, rows) => {
+      if (err) rej(err);
+      else res(rows.map(r => r.name));
+    });
+  });
+  console.log(`thought columns: ${thoughtColumns.join(', ')}`);
+
+  if (!thoughtColumns.includes('tags')) {
+    console.log('Adding tags to thoughts');
+    await runSql(db, 'ALTER TABLE thoughts ADD COLUMN tags TEXT DEFAULT "[]"');
+    await runSql(db, "UPDATE thoughts SET tags = '[]' WHERE tags IS NULL");
+  }
+
+  // Add indexes on tags
+  await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_plans_tags ON plans(tags)');
+  await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts(tags)');
 
   if (skipMigration) {
     console.log(`skipMigration=${skipMigration}`);
