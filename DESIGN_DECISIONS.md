@@ -34,9 +34,13 @@
   - Context endpoint (/context) simulates AI "memory" by returning incomplete plans and recent thoughts, central to the human-AI workflow.
 
 - **Server Structure**
-  - Single server.js file handles both production (global DB) and testing (in-memory via createApp factory), promoting code reuse.
-  - Middleware: express.json() for body parsing, express.static for frontend serving.
-  - Separate init/clean functions for DB setup/teardown, with transactions for atomic operations (e.g., resetting sequences).
+  - Modular refactoring: Original monolithic server.js (~1241 lines) refactored into dedicated directories for improved maintainability. server.js (~150 lines) now serves as a thin composition layer, importing and wiring modular components without business logic.
+  - **db/database.js**: Handles all database operations including initialization, queries (prepared statements for security), schema migrations (idempotent ALTER TABLE with backfills), and one-time JSON imports (data/plans.json, data/thoughts.json) for bootstrapping.
+  - **routes/plans.js, routes/thoughts.js, routes/context.js**: Dedicated Express routers for API handlers. plans.js covers CRUD (POST, GET all/single, PATCH status/changelog, PUT edits), filtering (?status, ?since); thoughts.js handles CRUD and linking (?limit, ?since, /plans/:id/thoughts); context.js aggregates incomplete plans and last 10 thoughts for AI context. Also includes /tpc.db for serving the binary database.
+  - **middleware/errorHandler.js**: Centralized error handling middleware for consistent 4xx/5xx JSON responses across all routes, reducing duplication.
+  - Middleware stack: express.json() for body parsing, express.static for serving public/ frontend files, custom errorHandler at the end.
+  - createApp factory: Exports an app instance configurable for environments (e.g., :memory: DB for isolated Jest tests via NODE_ENV=test, file-based data/tpc.db for production). Supports clean DB teardown in tests with transactions for atomic resets (e.g., sequence handling).
+  - Benefits: Adheres to single responsibility principle—DB module for persistence, routes for HTTP handling, middleware for cross-cutting concerns (errors, parsing). Enhances testability (mock/isolate modules), scalability (add new routes/middleware independently), and readability. Functionality preserved (all endpoints, static serving, binary DB access); no new dependencies; tests pass without regressions (npm test, npx playwright test).
 
 - **Environment Handling**
   - NODE_ENV=test uses :memory: DB for isolated, fast tests; production uses data/tpc.db.

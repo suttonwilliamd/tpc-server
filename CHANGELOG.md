@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactored server.js into modular db/, routes/, middleware/ directories. Extracted DB logic to db/database.js, API routes to routes/plans.js, routes/thoughts.js, routes/context.js, error handling to middleware/errorHandler.js. Preserved all endpoints, static serving, test compatibility. No breaking changes. Reduced server.js to ~150 lines with createApp factory.
+
 ## [2.6.0] - 2025-10-02
 
 ### Added
@@ -14,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UI renders Markdown in detail view using marked.js (supports bold, lists, etc.).
 - New unit tests in v2.6.test.js for API storage/retrieval.
 - New E2E tests in e2e/v2.6.test.js for UI rendering.
+
 ## [2.4.0] - 2025-10-01
 
 ### Added
