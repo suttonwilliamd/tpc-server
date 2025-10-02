@@ -449,6 +449,9 @@ async function createApp({ skipMigration = false } = {}) {
     }
 
     if (description !== undefined) {
+      if (!description || description.trim() === '') {
+        return res.status(400).json({ error: 'Description cannot be empty if provided' });
+      }
       updateFields.push('description = COALESCE(?, description)');
       params.push(description);
     }
@@ -997,6 +1000,9 @@ globalApp.put('/plans/:id', async (req, res) => {
   }
 
   if (description !== undefined) {
+    if (!description || description.trim() === '') {
+      return res.status(400).json({ error: 'Description cannot be empty if provided' });
+    }
     updateFields.push('description = COALESCE(?, description)');
     params.push(description);
   }

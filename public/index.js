@@ -73,7 +73,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           // Render plan info
           document.getElementById('plan-title').textContent = plan.title;
-          document.getElementById('plan-description').textContent = plan.description || 'No description';
+          const descElement = document.getElementById('plan-description');
+          if (typeof marked !== 'undefined' && plan.description) {
+            descElement.innerHTML = marked.parse(plan.description);
+          } else {
+            descElement.textContent = plan.description || 'No description';
+          }
           document.getElementById('plan-status').textContent = plan.status;
           
           // Render changelog

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2025-10-02
+
+### Added
+- Added Markdown storage in plan descriptions via PUT /plans/:id (raw Markdown stored and returned on GETs).
+- UI renders Markdown in detail view using marked.js (supports bold, lists, etc.).
+- New unit tests in v2.6.test.js for API storage/retrieval.
+- New E2E tests in e2e/v2.6.test.js for UI rendering.
 ## [2.4.0] - 2025-10-01
 
 ### Added
@@ -159,3 +166,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.2.0]: https://github.com/bitFlipper/tpc-server/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/bitFlipper/tpc-server/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/bitFlipper/tpc-server/releases/tag/v1.0.0
+
+[2.6.0]: https://github.com/bitFlipper/tpc-server/compare/v2.5.0...v2.6.0
