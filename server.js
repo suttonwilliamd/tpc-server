@@ -10,6 +10,7 @@ const { initGlobalDB, cleanDB: globalCleanDB } = require('./db/database.js');
 const plansRouter = require('./routes/plans.js');
 const thoughtsRouter = require('./routes/thoughts.js');
 const contextRouter = require('./routes/context.js');
+const searchRouter = require('./routes/search.js');
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -24,6 +25,13 @@ globalApp.use(express.static(path.join(__dirname, 'public')));
 globalApp.use('/plans', plansRouter);
 globalApp.use('/thoughts', thoughtsRouter);
 globalApp.use('/context', contextRouter);
+globalApp.use('/search', searchRouter);
+
+// Serve tpc.db as binary
+globalApp.get('/tpc.db', (req, res) => {
+  res.type('application/octet-stream');
+  res.sendFile(path.join(__dirname, 'data', 'tpc.db'));
+});
 
 // 404 catch-all
 globalApp.use((req, res, next) => {
@@ -66,6 +74,7 @@ async function createApp({ skipMigration = false } = {}) {
   localApp.use('/plans', plansRouter);
   localApp.use('/thoughts', thoughtsRouter);
   localApp.use('/context', contextRouter);
+  localApp.use('/search', searchRouter);
   
   // 404 catch-all
   localApp.use((req, res, next) => {

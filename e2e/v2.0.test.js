@@ -7,6 +7,9 @@ test.describe('v2.0 Static UI', () => {
     await expect(page.locator('h1')).toContainText('TPC Server');
     await expect(page.locator('#plans-list')).toBeVisible();
     await expect(page.locator('#thoughts-list')).toBeVisible();
+    // Wait for async load to complete
+    await page.waitForSelector('#plans-list li[data-plan-id]');
+    await page.waitForSelector('#thoughts-list li[data-thought-id]');
     // Since DB has migrated data, expect at least one item in each list
     await expect(page.locator('#plans-list li')).toHaveCount(10);
     await expect(page.locator('#thoughts-list li')).toHaveCount(6);

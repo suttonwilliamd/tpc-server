@@ -42,10 +42,26 @@ async function runSql(db, sql, params = []) {
 router.post('/', async (req, res, next) => {
   try {
     const db = req.db || getDB();
-    const { title, description } = req.body;
+    const { title, description, tags: inputTags } = req.body;
 
     if (!title || title.trim() === '' || !description || description.trim() === '') {
       return res.status(400).json({ error: 'Title and description are required and cannot be empty' });
+    }
+
+    let tags = [];
+    if (inputTags) {
+      if (!Array.isArray(inputTags)) {
+        return res.status(400).json({ error: 'Tags must be an array of strings' });
+      }
+      tags = inputTags.filter(tag => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim().toLowerCase());
+      const uniqueTags = [...new Set(tags)];
+      if (uniqueTags.length !== tags.length) {
+        return res.status(400).json({ error: 'Tags must not contain duplicates' });
+      }
+      if (uniqueTags.length > 10) {
+        return res.status(400).json({ error: 'Maximum 10 tags allowed' });
+      }
+      tags = uniqueTags;
     }
 
     const timestamp = new Date().toISOString();
@@ -54,14 +70,14 @@ router.post('/', async (req, res, next) => {
 
     const createdAt = Date.now();
     const result = await runSql(db,
-      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
-      [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt]
+      "INSERT INTO plans (title, description, status, changelog, timestamp, created_at, last_modified_by, last_modified_at, needs_review, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+      [title, description, status, changelog, timestamp, createdAt, 'agent', createdAt, JSON.stringify(tags)]
     );
 
     const id = result.lastID;
     console.log(`POST /plans: Inserted ID ${id}, title: "${title}"`);
 
-    res.status(201).json({ id, title, description, status, timestamp });
+    res.status(201).json({ id, title, description, status, timestamp, tags });
   } catch (err) {
     next(err);
   }
@@ -88,7 +104,8 @@ router.get('/:id', async (req, res, next) => {
       last_modified_at: plan.last_modified_at,
       last_modified_by: plan.last_modified_by,
       needs_review: plan.needs_review,
-      changelog: JSON.parse(plan.changelog)
+      changelog: JSON.parse(plan.changelog),
+      tags: JSON.parse(plan.tags || '[]')
     };
     res.status(200).json(responsePlan);
   } catch (err) {
@@ -184,7 +201,7 @@ router.patch('/:id', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const db = req.db || getDB();
-    const { title, description } = req.body;
+    const { title, description, tags: inputTags } = req.body;
 
     let updateFields = [];
     let params = [];
@@ -203,6 +220,27 @@ router.put('/:id', async (req, res, next) => {
       }
       updateFields.push('description = COALESCE(?, description)');
       params.push(description.trim());
+    }
+
+    let tags = null;
+    if (inputTags !== undefined) {
+      if (inputTags === null) {
+        tags = [];
+      } else if (!Array.isArray(inputTags)) {
+        return res.status(400).json({ error: 'Tags must be an array of strings or null' });
+      } else {
+        const processedTags = inputTags.filter(tag => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim().toLowerCase());
+        const uniqueTags = [...new Set(processedTags)];
+        if (uniqueTags.length !== processedTags.length) {
+          return res.status(400).json({ error: 'Tags must not contain duplicates' });
+        }
+        if (uniqueTags.length > 10) {
+          return res.status(400).json({ error: 'Maximum 10 tags allowed' });
+        }
+        tags = uniqueTags;
+      }
+      updateFields.push('tags = ?');
+      params.push(JSON.stringify(tags));
     }
 
     if (updateFields.length === 0) {
@@ -237,7 +275,8 @@ router.put('/:id', async (req, res, next) => {
       last_modified_at: updatedPlan.last_modified_at,
       last_modified_by: updatedPlan.last_modified_by,
       needs_review: updatedPlan.needs_review,
-      changelog: JSON.parse(updatedPlan.changelog)
+      changelog: JSON.parse(updatedPlan.changelog),
+      tags: JSON.parse(updatedPlan.tags || '[]')
     };
     res.status(200).json(responsePlan);
   } catch (err) {
@@ -290,6 +329,66 @@ router.patch('/:id/changelog', async (req, res, next) => {
 });
 
 // GET /
+router.patch('/:id/tags', async (req, res, next) => {
+  try {
+    const db = req.db || getDB();
+    const { add, remove } = req.body;
+    const planId = parseInt(req.params.id);
+
+    if (!add && !remove) {
+      return res.status(400).json({ error: 'At least one of "add" or "remove" must be provided as arrays' });
+    }
+
+    const plan = await getOne(db, "SELECT tags FROM plans WHERE id = ?", [planId]);
+    if (!plan) {
+      const err = new Error('Plan not found');
+      err.status = 404;
+      throw err;
+    }
+
+    let currentTags = JSON.parse(plan.tags || '[]');
+
+    let newTags = [...currentTags];
+
+    if (add) {
+      if (!Array.isArray(add)) {
+        return res.status(400).json({ error: '"add" must be an array of strings' });
+      }
+      const addTags = add.filter(tag => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim().toLowerCase());
+      const uniqueAdd = addTags.filter(tag => !newTags.includes(tag));
+      newTags = [...new Set([...newTags, ...uniqueAdd])];
+    }
+
+    if (remove) {
+      if (!Array.isArray(remove)) {
+        return res.status(400).json({ error: '"remove" must be an array of strings' });
+      }
+      const removeTags = remove.filter(tag => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim().toLowerCase());
+      newTags = newTags.filter(tag => !removeTags.includes(tag));
+    }
+
+    if (newTags.length > 10) {
+      return res.status(400).json({ error: 'Maximum 10 tags allowed after operation' });
+    }
+
+    const now = Date.now();
+    await runSql(db, "UPDATE plans SET tags = ?, last_modified_by = 'agent', last_modified_at = ? WHERE id = ?", [JSON.stringify(newTags), now, planId]);
+
+    const updatedPlan = await getOne(db, "SELECT * FROM plans WHERE id = ?", [planId]);
+    const responsePlan = {
+      id: updatedPlan.id,
+      title: updatedPlan.title,
+      description: updatedPlan.description,
+      status: updatedPlan.status,
+      timestamp: updatedPlan.timestamp,
+      tags: newTags
+    };
+    res.status(200).json(responsePlan);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', async (req, res, next) => {
   try {
     const db = req.db || getDB();
@@ -308,6 +407,26 @@ router.get('/', async (req, res, next) => {
     if (req.query.needs_review === 'true') {
       whereClauses.push("needs_review = 1");
     }
+
+    // Tags filtering
+    if (req.query.tags) {
+      const tagsValue = req.query.tags.toString().trim();
+      let mode = 'any';
+      let tagsList = [];
+      if (tagsValue.startsWith('any:')) {
+        tagsList = tagsValue.substring(4).split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+      } else if (tagsValue.startsWith('all:')) {
+        mode = 'all';
+        tagsList = tagsValue.substring(4).split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+      } else {
+        tagsList = tagsValue.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+      }
+      if (tagsList.length > 0) {
+        const tagConditions = tagsList.map(tag => `tags LIKE '%"${tag}"%'`).join(mode === 'all' ? ' AND ' : ' OR ');
+        whereClauses.push(`(${tagConditions})`);
+      }
+    }
+
     let sql = "SELECT * FROM plans";
     if (whereClauses.length > 0) {
       sql += " WHERE " + whereClauses.join(" AND ");
@@ -324,7 +443,8 @@ router.get('/', async (req, res, next) => {
       last_modified_at: p.last_modified_at,
       last_modified_by: p.last_modified_by,
       needs_review: p.needs_review,
-      changelog: JSON.parse(p.changelog)
+      changelog: JSON.parse(p.changelog),
+      tags: JSON.parse(p.tags || '[]')
     }));
     console.log(`GET /plans: Returning ${plans.length} plans`);
     res.status(200).json(plans);
