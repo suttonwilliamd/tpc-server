@@ -1,0 +1,167 @@
+/**
+ * Input Component Styles for v2.9.0
+ * Uses design system CSS variables for colors, spacing, typography, borders, shadows.
+ * Supports light/dark themes, responsive design, validation states, and search input layout.
+ * Includes focus rings, error displays, and clear button styling.
+ */
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.search-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: var(--space-2xs);
+}
+
+.input,
+.textarea {
+  padding: var(--space-s);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.search-input {
+  border: none;
+  outline: none;
+  flex: 1;
+  padding: var(--space-s) var(--space-s) var(--space-s) var(--space-s);
+}
+
+.input:focus,
+.textarea:focus,
+.input-wrapper:focus-within {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.input:invalid[aria-invalid="true"],
+.textarea:invalid[aria-invalid="true"],
+.input-wrapper:has(input:invalid[aria-invalid="true"]) {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-light);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.input-error {
+  color: var(--danger);
+  font-size: 0.75rem;
+  margin-top: var(--space-2xs);
+}
+
+.input-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  padding: 0 var(--space-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+}
+
+.input-clear:hover {
+  color: var(--text);
+}
+
+/* Dark mode overrides */
+[data-theme="dark"] .input-group,
+[data-theme="dark"] .search-input-group {
+  /* No specific overrides needed if using theme vars */
+}
+
+[data-theme="dark"] .input-label {
+  color: var(--text-dark);
+}
+
+[data-theme="dark"] .input,
+[data-theme="dark"] .textarea,
+[data-theme="dark"] .input-wrapper {
+  background: var(--bg-dark);
+  border-color: var(--border-color-dark);
+  color: var(--text-dark);
+}
+
+[data-theme="dark"] .input::placeholder,
+[data-theme="dark"] .textarea::placeholder {
+  color: var(--text-secondary-dark);
+}
+
+[data-theme="dark"] .input:focus,
+[data-theme="dark"] .textarea:focus,
+[data-theme="dark"] .input-wrapper:focus-within {
+  border-color: var(--primary-dark);
+  box-shadow: 0 0 0 2px var(--focus-ring-dark);
+}
+
+[data-theme="dark"] .input:invalid[aria-invalid="true"],
+[data-theme="dark"] .textarea:invalid[aria-invalid="true"],
+[data-theme="dark"] .input-wrapper:has(input:invalid[aria-invalid="true"]) {
+  border-color: var(--danger-dark);
+  box-shadow: 0 0 0 2px var(--danger-light-dark);
+}
+
+[data-theme="dark"] .input-error {
+  color: var(--danger-dark);
+}
+
+[data-theme="dark"] .input-clear {
+  color: var(--text-secondary-dark);
+}
+
+[data-theme="dark"] .input-clear:hover {
+  color: var(--text-dark);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .input,
+  .textarea {
+    font-size: 0.9375rem;
+    padding: var(--space-xs);
+  }
+
+  .input-label {
+    font-size: 0.8125rem;
+  }
+}

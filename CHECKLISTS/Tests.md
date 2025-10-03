@@ -399,3 +399,23 @@ Full suite passes: All 214 Jest + 21 Playwright pass; no failures. Coverage incr
 - **UI tests** can use Playwright/Cypress from v2.0 onward  
 - **Integration tests** verify data flows between AI agent ↔ server ↔ human UI
 - **Performance tests** become important around v1.7 (SQLite migration)
+[x] ## **v2.9 - Component Library Basics**
+
+**Unit Tests (Jest in v2.9.test.js):**
+- 24 tests covering:
+  - Button: rendering with variants (primary/secondary), sizes (sm/md/lg), states (hover/focus/disabled), icons integration, event handling (click callbacks).
+  - Card: structure with header/body/footer sections, hover effects, nested content rendering.
+  - Badge/Pill: status variants (success/warning/error), tag display, dynamic text sizing.
+  - Input: form validation, search placeholder, focus/blur events, value binding.
+  - Loading: spinner animations, skeleton placeholders, overlay modals, fetch state transitions.
+- Integration: Component factories in public/index.js, token usage from design system, fallback rendering.
+
+**E2E Tests (Playwright in e2e/v2.9.test.js):**
+- 5 tests for:
+  - UI interactions: Search Input filters lists, Button actions toggle modals, Card/Badge rendering in plan/thought displays.
+  - Responsive behavior: Mobile/tablet/desktop layouts with components adapting (e.g., Button sizing, Card stacking).
+  - Theme compatibility: Light/dark mode switches affect component styles (colors, shadows via CSS vars).
+  - Loading states: Simulate fetch delays, verify spinners/overlays during data loads.
+  - Modal prototype: Open/close with Loading overlay, Button triggers.
+
+Full suite passes: 238 Jest + 26 Playwright (incremental additions from v2.9); no failures, full regression coverage.

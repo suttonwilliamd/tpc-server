@@ -1,0 +1,97 @@
+/**
+ * Badge/Pill Component Styles for v2.9.0 Component Library Basics
+ * Uses design system CSS variables for colors, spacing, borders.
+ * Status variants: default, proposed (blue), in_progress (amber), completed (green), needs_review (red)
+ * Supports light/dark themes and responsive design.
+ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-s);
+  border-radius: var(--border-radius-full);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.badge--default {
+  background: var(--bg-light);
+  color: var(--text-secondary);
+}
+
+.badge--proposed {
+  background: var(--blue-light);
+  color: var(--blue-dark);
+}
+
+.badge--in_progress {
+  background: var(--amber-light);
+  color: var(--amber-dark);
+}
+
+.badge--completed {
+  background: var(--green-light);
+  color: var(--green-dark);
+}
+
+.badge--needs_review {
+  background: var(--red-light);
+  color: var(--red-dark);
+}
+
+.badge-remove {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  padding: 0;
+  margin-left: var(--space-2xs);
+  line-height: 1;
+}
+
+.badge-remove:hover {
+  opacity: 1;
+}
+
+.badge:hover .badge-remove {
+  opacity: 1;
+}
+
+/* Dark mode variants */
+[data-theme="dark"] .badge--default {
+  background: var(--bg-dark-light);
+  color: var(--text-secondary-dark);
+}
+
+[data-theme="dark"] .badge--proposed {
+  background: var(--blue-dark-light);
+  color: var(--blue-light);
+}
+
+[data-theme="dark"] .badge--in_progress {
+  background: var(--amber-dark-light);
+  color: var(--amber-light);
+}
+
+[data-theme="dark"] .badge--completed {
+  background: var(--green-dark-light);
+  color: var(--green-light);
+}
+
+[data-theme="dark"] .badge--needs_review {
+  background: var(--red-dark-light);
+  color: var(--red-light);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .badge {
+    font-size: 0.7rem;
+    padding: var(--space-2xs) var(--space-xs);
+  }
+}

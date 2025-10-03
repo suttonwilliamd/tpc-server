@@ -5,17 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.0] - 2025-10-03
 
 ### Added
-- Design system foundation with CSS variables for colors, spacing, typography scales, borders, and shadows in public/style.css.
-- Light and dark mode support with toggle button, localStorage persistence, and media query fallback.
-- Typography updates with Inter/System UI font stack, base 16px font size, line heights, and h1-h6 hierarchy.
-- Responsive layout using CSS Grid for main structure, Flexbox for components, 1200px max-width container, and breakpoints (mobile <768px, tablet 768-1024px, desktop >1024px).
+- Component library in components/ directory: Button with variants/sizes/states/icons, Card with sections/hover, Badge/Pill for status/tags, Input for forms/search, Loading for spinners/skeletons/overlays; all implemented using design system tokens from public/style.css.
+- Integration into public/index.js: Lists rendered with Cards and Badges, search functionality with Input, actions with Button, Loading states for fetches, modal prototype utilizing components.
+- Tests: 24 Jest unit tests in v2.9.test.js covering component rendering, events, states, and interactions; 5 Playwright E2E tests in e2e/v2.9.test.js for UI integration, responsive behavior, and theme compatibility.
 
 ### Changed
-- Updated public/style.css for typography and layout improvements as part of the design system foundation.
-- Refactored server.js into modular db/, routes/, middleware/ directories. Extracted DB logic to db/database.js, API routes to routes/plans.js, routes/thoughts.js, routes/context.js, error handling to middleware/errorHandler.js. Preserved all endpoints, static serving, test compatibility. No breaking changes. Reduced server.js to ~150 lines with createApp factory.
+- public/index.js rendering updated to leverage new components with fallbacks for backward compatibility (e.g., inline styles if component loading fails).
 ## [2.6.0] - 2025-10-02
 
 ### Added

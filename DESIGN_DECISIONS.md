@@ -109,3 +109,11 @@
   - Rationale from checklists: Core value (AI context storage, human audit) delivered early; enhancements (search, real-time) as "nice-to-haves."
 
 This design prioritizes rapid iteration, reliability, and clear human-AI interaction in a lightweight package.
+
+## Component Modularity in v2.9
+
+- Dynamic JS factories for DOM creation: Components like Button and Card use factory functions (e.g., createButton(variant, size, onClick)) to generate reusable DOM elements programmatically, avoiding template literals for better performance and flexibility in the vanilla JS environment.
+- CSS scoped to classes with vars: Each component has dedicated .css files (e.g., button.css) leveraging CSS custom properties (--btn-primary-bg, --spacing-md) from the design system in public/style.css, ensuring style isolation, theme adaptability (light/dark), and no global namespace conflicts.
+- Import in module script: Components imported dynamically via import() statements in public/index.js as ES modules, supporting lazy loading, tree-shaking, and modular bundling without a build step.
+- Fallbacks for compatibility: Graceful degradation with inline styles or basic HTML elements if component loading fails (e.g., network errors or unsupported browsers), preserving core UI functionality and backward compatibility with pre-v2.9 rendering.
+- Future extensibility: Prop-like configuration objects for components (e.g., { variant: 'primary', disabled: true, children: 'Click me' }), facilitating easy migration to frameworks like React (wrapping factories as custom elements) while maintaining vanilla JS core.

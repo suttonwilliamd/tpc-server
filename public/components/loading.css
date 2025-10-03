@@ -1,0 +1,108 @@
+/**
+ * Loading Component Styles for v2.9.0 Component Library Basics
+ * Uses design system CSS variables for colors, spacing, typography, borders, shadows.
+ * Supports light/dark themes, responsive layout.
+ * Types: spinner (inline), skeleton (placeholders), overlay (full-screen).
+ */
+
+.loading {
+  display: inline-block;
+}
+
+.loading--sm .spinner {
+  width: 1rem;
+  height: 1rem;
+}
+
+.loading--lg .spinner {
+  width: 2rem;
+  height: 2rem;
+}
+
+.spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.skeleton-line {
+  height: 1rem;
+  background: linear-gradient(90deg, var(--bg-light) 25%, var(--bg-medium) 50%, var(--bg-light) 75%);
+  background-size: 200% 100%;
+  animation: pulse 1.5s ease-in-out infinite;
+  border-radius: var(--border-radius);
+  margin: var(--space-xs) 0;
+}
+
+@keyframes pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.loading--overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--bg-rgb), 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.overlay-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-m);
+  background: var(--bg);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.loading-message {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+/* Dark mode */
+[data-theme="dark"] .spinner {
+  border-color: var(--border-color-dark);
+  border-top-color: var(--primary-dark);
+}
+
+[data-theme="dark"] .skeleton-line {
+  background: linear-gradient(90deg, var(--bg-dark-light) 25%, var(--bg-dark-medium) 50%, var(--bg-dark-light) 75%);
+}
+
+[data-theme="dark"] .loading--overlay {
+  background: rgba(var(--bg-dark-rgb), 0.8);
+}
+
+[data-theme="dark"] .overlay-spinner {
+  background: var(--bg-dark);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .overlay-spinner {
+    padding: var(--space-s);
+  }
+}
