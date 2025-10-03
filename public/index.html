@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,49 +7,53 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>TPC Server</h1>
+    <button id="theme-toggle">🌙</button>
     
-    <section id="search-section">
-        <h2>Search</h2>
-        <input type="text" id="search-input" placeholder="Search plans and thoughts...">
-        <button id="clear-search">Clear</button>
-        <ul id="search-results" style="display: none;"></ul>
-    </section>
+    <div class="container">
+        <h1>TPC Server</h1>
+        
+        <section id="search-section">
+            <h2>Search</h2>
+            <input type="text" id="search-input" placeholder="Search plans and thoughts...">
+            <button id="clear-search">Clear</button>
+            <ul id="search-results" style="display: none;"></ul>
+        </section>
 
-    <section id="filter-section">
-        <h2>Filter by Tags</h2>
-        <input type="text" id="tag-filter" placeholder="Enter tags (e.g., tag1 or any:tag1,tag2 or all:tag1,tag2)">
-        <button id="clear-filter">Clear Filter</button>
-    </section>
-    
-    <section>
-        <h2>Plans List</h2>
-        <ul id="plans-list">
-            <!-- Plans will be populated here -->
-        </ul>
-    </section>
-    
-    <section>
-        <h2>Thoughts List</h2>
-        <ul id="thoughts-list">
-            <!-- Thoughts will be populated here -->
-        </ul>
-    </section>
-    
-    <div id="detail-panel" style="display: none;">
-        <h3 id="detail-type"></h3>
-        <h2 id="detail-title"></h2>
-        <div id="detail-content" class="description markdown-body"></div>
-        <p id="detail-status" style="display: none;"><strong>Status:</strong> <span></span></p>
-        <h3>Tags</h3>
-        <div id="tags-list"></div>
-        <input type="text" id="add-tag-input" placeholder="Add new tag">
-        <button id="add-tag-btn">Add Tag</button>
-        <h3>Changelog</h3>
-        <ul id="changelog-list"></ul>
-        <h3>Linked Thoughts</h3>
-        <ul id="linked-thoughts-list"></ul>
-        <button id="back-button">Back</button>
+        <section id="filter-section">
+            <h2>Filter by Tags</h2>
+            <input type="text" id="tag-filter" placeholder="Enter tags (e.g., tag1 or any:tag1,tag2 or all:tag1,tag2)">
+            <button id="clear-filter">Clear Filter</button>
+        </section>
+        
+        <section>
+            <h2>Plans List</h2>
+            <ul id="plans-list">
+                <!-- Plans will be populated here -->
+            </ul>
+        </section>
+        
+        <section>
+            <h2>Thoughts List</h2>
+            <ul id="thoughts-list">
+                <!-- Thoughts will be populated here -->
+            </ul>
+        </section>
+        
+        <div id="detail-panel" style="display: none;">
+            <h3 id="detail-type"></h3>
+            <h2 id="detail-title"></h2>
+            <div id="detail-content" class="description markdown-body"></div>
+            <p id="detail-status" style="display: none;"><strong>Status:</strong> <span></span></p>
+            <h3>Tags</h3>
+            <div id="tags-list"></div>
+            <input type="text" id="add-tag-input" placeholder="Add new tag">
+            <button id="add-tag-btn">Add Tag</button>
+            <h3>Changelog</h3>
+            <ul id="changelog-list"></ul>
+            <h3>Linked Thoughts</h3>
+            <ul id="linked-thoughts-list"></ul>
+            <button id="back-button">Back</button>
+        </div>
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

@@ -82,7 +82,7 @@ test.describe('v2.7 Search & Organization E2E', () => {
     await page.click('#plans-list li:first-child');
     await page.waitForSelector('#detail-panel', { state: 'visible' });
     // Wait for details to load
-    await page.waitForSelector('#tags-list li');
+    await page.waitForSelector('#tags-list');
   
     // Add tag
     await page.fill('#add-tag-input', 'newtesttag');

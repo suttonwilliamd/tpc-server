@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Refactored server.js into modular db/, routes/, middleware/ directories. Extracted DB logic to db/database.js, API routes to routes/plans.js, routes/thoughts.js, routes/context.js, error handling to middleware/errorHandler.js. Preserved all endpoints, static serving, test compatibility. No breaking changes. Reduced server.js to ~150 lines with createApp factory.
+### Added
+- Design system foundation with CSS variables for colors, spacing, typography scales, borders, and shadows in public/style.css.
+- Light and dark mode support with toggle button, localStorage persistence, and media query fallback.
+- Typography updates with Inter/System UI font stack, base 16px font size, line heights, and h1-h6 hierarchy.
+- Responsive layout using CSS Grid for main structure, Flexbox for components, 1200px max-width container, and breakpoints (mobile <768px, tablet 768-1024px, desktop >1024px).
 
+### Changed
+- Updated public/style.css for typography and layout improvements as part of the design system foundation.
+- Refactored server.js into modular db/, routes/, middleware/ directories. Extracted DB logic to db/database.js, API routes to routes/plans.js, routes/thoughts.js, routes/context.js, error handling to middleware/errorHandler.js. Preserved all endpoints, static serving, test compatibility. No breaking changes. Reduced server.js to ~150 lines with createApp factory.
 ## [2.6.0] - 2025-10-02
 
 ### Added

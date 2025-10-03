@@ -6,9 +6,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tagFilterInput = document.getElementById('tag-filter');
   const clearSearchBtn = document.getElementById('clear-search');
   const clearFilterBtn = document.getElementById('clear-filter');
+  const themeToggle = document.getElementById('theme-toggle');
 
   let currentSearch = '';
   let currentTagFilter = '';
+
+  // Theme management
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+
+  function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+    setTheme(theme);
+  }
+
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      setTheme(newTheme);
+    });
+  }
+
+  // Initial theme load
+  initTheme();
 
   // Function to load lists with optional tag filter
   async function loadLists(tagFilter = '') {
