@@ -111,7 +111,7 @@
 - **Testing:** Jest unit tests in `v2.7.test.js` (search logic, tagging, schema, edges); Playwright E2E in `e2e/v2.7.test.js` (UI search flow, rendering).
 
 UI/UX Foundation Phase
-v2.8 - Design System Foundation
+[x] v2.8 - Design System Foundation
 
 CSS Variables System:
 
@@ -146,8 +146,7 @@ Max-width container (1200px) centered
 Responsive breakpoints (mobile: <768px, tablet: 768-1024px, desktop: >1024px)
 
 
-
-v2.9 - Component Library Basics
+ v2.9 - Component Library Basics
 
 Button Components:
 
@@ -187,11 +186,9 @@ Skeleton screens for plan/thought cards (animated pulse)
 Loading overlay for full-page operations
 
 
-
-v3.0 - Responsive Layout & Navigation
+ v3.0 - Responsive Layout & Navigation
 
 Responsive Grid System:
-
 Plans/thoughts lists:
 
 Mobile: Single column stack
@@ -230,8 +227,7 @@ Link to API docs (if created)
 Status indicators (DB connected, last sync time)
 
 
-
-v3.1 - Enhanced List Views
+ v3.1 - Enhanced List Views
 
 Plans List Improvements:
 
@@ -263,8 +259,7 @@ Slide-out for deleted items
 Smooth height transition for expand/collapse
 
 
-
-Interaction & UX Phase
+ Interaction & UX Phase
 v3.2 - Inline Editing & Forms
 
 Inline Editing:
@@ -301,8 +296,7 @@ Live preview pane or toggle preview mode
 Use library like SimpleMDE or EasyMDE (lightweight)
 
 
-
-v3.3 - Search & Filter UX
+ v3.3 - Search & Filter UX
 
 Search Enhancements:
 
@@ -340,8 +334,7 @@ Click to navigate to detail view
 Total count ("Found 23 results for 'React'")
 
 
-
-v3.4 - Keyboard Shortcuts & Accessibility
+ v3.4 - Keyboard Shortcuts & Accessibility
 
 Global Shortcuts:
 
@@ -380,8 +373,7 @@ Lists all available shortcuts grouped by category
 Visual keyboard key representation
 
 
-
-v3.5 - Notifications & Feedback
+ v3.5 - Notifications & Feedback
 
 Toast Notification System:
 
@@ -417,8 +409,7 @@ Indeterminate progress for unknown duration (initial data load)
 Progress shown in toast or inline in component
 
 
-
-Advanced Features Phase
+ Advanced Features Phase
 v3.6 - Sorting, Pagination & Performance
 
 Column Sorting:
@@ -456,8 +447,7 @@ Lazy load Markdown rendering (only render visible cards)
 Image lazy loading (if images added in future)
 
 
-
-v3.7 - Bulk Operations
+ v3.7 - Bulk Operations
 
 Multi-Select:
 
@@ -491,8 +481,7 @@ Shift + Click for range selection
 Ctrl/Cmd + Click for individual toggle
 
 
-
-v3.8 - Drag & Drop
+ v3.8 - Drag & Drop
 
 Plan Reordering:
 
@@ -525,8 +514,7 @@ Card follows cursor with slight offset
 Drop animation (card settles into position)
 
 
-
-v3.9 - Alternative Views
+ v3.9 - Alternative Views
 
 View Switcher:
 
@@ -560,7 +548,6 @@ View-Specific Features:
 List view: Dense/comfortable/spacious options
 Timeline view: Filter by date range, zoom level
 Kanban view: Collapse columns, swim lanes by tags (future)
-
 
 
 v4.0 - Plan Templates & Presets
@@ -599,8 +586,7 @@ Manage presets in settings (rename, delete)
 Share preset via URL
 
 
-
-v4.1 - Data Visualization
+ v4.1 - Data Visualization
 
 Dashboard Page:
 
@@ -639,8 +625,7 @@ Download chart as PNG
 Export underlying data as CSV
 
 
-
-v4.2 - Export & Import
+ v4.2 - Export & Import
 
 Export UI:
 
@@ -683,8 +668,7 @@ Transaction-based (rollback on error)
 Return summary: {imported: 10, skipped: 2, errors: []}
 
 
-
-Real-Time & Collaboration Phase
+ Real-Time & Collaboration Phase
 v4.3 - WebSocket Infrastructure
 
 Server-Side WebSocket:
@@ -717,8 +701,7 @@ Validate all incoming messages
 Rate limiting on WebSocket messages
 
 
-
-v4.4 - Live Updates & Optimistic UI
+ v4.4 - Live Updates & Optimistic UI
 
 Real-Time UI Updates:
 
@@ -752,8 +735,7 @@ Option to dismiss or view changes
 Batch notifications if many updates (e.g., "3 plans updated")
 
 
-
-v4.5 - Conflict Resolution
+ v4.5 - Conflict Resolution
 
 Conflict Detection:
 
@@ -786,8 +768,7 @@ Click version to view or restore
 Diff view between any two versions
 
 
-
-v4.6 - Activity Feed & Presence
+ v4.6 - Activity Feed & Presence
 
 Activity Feed:
 
@@ -820,8 +801,7 @@ Filter activity by type (show only plan updates, hide thought activity)
 Desktop notifications option (browser permission required)
 
 
-
-Polish & Production Phase
+ Polish & Production Phase
 v4.7 - Error Handling & Validation
 
 Centralized Error Handling:
@@ -863,8 +843,7 @@ Used by monitoring tools, load balancers
 Check DB connection, return degraded if DB down
 
 
-
-v4.8 - Settings & Preferences
+ v4.8 - Settings & Preferences
 
 Settings Page:
 
@@ -909,8 +888,7 @@ Sync to server if user accounts added (future)
 Reset to defaults button
 
 
-
-v4.9 - Documentation & Help
+ v4.9 - Documentation & Help
 
 In-App Help:
 
@@ -939,7 +917,7 @@ Authentication section (if/when added)
 
 Changelog:
 
-/changelog page showing version history
+ /changelog page showing version history
 Each version: version number, date, list of changes
 Link to GitHub releases (if applicable)
 
@@ -950,9 +928,7 @@ Contextual tooltips throughout UI for complex features
 Hover icons to see explanations
 Keyboard shortcut hints in tooltips (e.g., "Search (/)")
 
-
-
-v5.0 - Performance & Optimization
+ v5.0 - Performance & Optimization
 
 Frontend Optimization:
 
@@ -988,9 +964,7 @@ Use Artillery or k6 for load testing
 Test: 100 concurrent users, 1000 requests/min
 Identify bottlenecks, optimize
 Target: <100ms response time for reads, <500ms for writes
-
 ---
-
 ## Key Development Principles for This Approach:
 
 1. **Each version should take 1-3 days max**

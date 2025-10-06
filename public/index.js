@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize components
+  if (window.ButtonComponent) new window.ButtonComponent();
+  if (window.InputComponent) new window.InputComponent();
+  if (window.CardComponent) new window.CardComponent();
+
   const plansList = document.getElementById('plans-list');
   const thoughtsList = document.getElementById('thoughts-list');
   const searchInput = document.getElementById('search-input');
@@ -9,6 +14,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let currentSearch = '';
   let currentTagFilter = '';
+  let currentPlanId = null;
+  let currentThoughtId = null;
+  let currentTags = [];
+
+  // Theme management
+  const themeToggle = document.createElement('button');
+  themeToggle.id = 'theme-toggle';
+  themeToggle.setAttribute('data-component', 'button');
+  themeToggle.setAttribute('data-variant', 'ghost');
+  themeToggle.textContent = 'Toggle Theme';
+  document.body.appendChild(themeToggle);
+
+  function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    themeToggle.textContent = savedTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
+  }
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    themeToggle.textContent = newTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
+  }
+
+  initTheme();
+  themeToggle.addEventListener('click', toggleTheme);
+
+  // Media query listener for system theme changes
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    if (!localStorage.getItem('theme')) {
+      document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      themeToggle.textContent = e.matches ? 'Light Mode' : 'Dark Mode';
+    }
+  });
 
   // Function to load lists with optional tag filter
   async function loadLists(tagFilter = '') {
@@ -18,8 +59,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Fetching from:', url, thoughtsUrl);
   
     // Set loading state
-    plansList.innerHTML = '<li>Loading...</li>';
-    thoughtsList.innerHTML = '<li>Loading...</li>';
+    plansList.innerHTML = '<div data-component="card"><div class="card-body">Loading...</div></div>';
+    thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">Loading...</div></div>';
   
     try {
       console.log('Starting Promise.all fetch');
@@ -44,41 +85,71 @@ document.addEventListener('DOMContentLoaded', async () => {
       const thoughts = await thoughtsResponse.json();
       console.log('Thoughts parsed, length:', thoughts.length, 'first thought:', thoughts[0]);
   
-      // Render plans
+      // Render plans as cards
       console.log('Rendering plans');
       if (plans.length > 0) {
-        const planHtml = plans.map(plan =>
-          `<li data-plan-id="${plan.id}"><strong>${plan.title}</strong> (${plan.status}) ${plan.tags && plan.tags.length > 0 ? `<small>Tags: ${plan.tags.join(', ')}</small>` : ''}</li>`
-        ).join('');
-        console.log('Plan HTML generated, length:', planHtml.length);
+        const planHtml = plans.map(plan => {
+          const tagsStr = plan.tags && plan.tags.length > 0 ? plan.tags.join(', ') : '';
+          return `
+            <div data-component="card" 
+                 data-type="plan" 
+                 data-title="${plan.title}" 
+                 data-status="${plan.status}" 
+                 data-tags="${tagsStr}" 
+                 data-description="${(plan.description || '').substring(0, 100)}..." 
+                 data-plan-id="${plan.id}"
+                 tabindex="0"
+                 role="button"
+                 aria-label="View plan: ${plan.title}">
+              <!-- Card structure will be initialized by Card component -->
+            </div>
+          `;
+        }).join('');
         plansList.innerHTML = planHtml;
       } else {
-        plansList.innerHTML = '<li>No plans yet</li>';
+        plansList.innerHTML = '<div data-component="card"><div class="card-body">No plans yet</div></div>';
       }
   
-      // Render thoughts
+      // Render thoughts as cards
       console.log('Rendering thoughts');
       if (thoughts.length > 0) {
-        const thoughtHtml = thoughts.map(thought =>
-          `<li data-thought-id="${thought.id}">${thought.content} <small>(${thought.timestamp})</small>${thought.plan_id ? ` (Plan: ${thought.plan_id})` : ''} ${thought.tags && thought.tags.length > 0 ? `<small>Tags: ${thought.tags.join(', ')}</small>` : ''}</li>`
-        ).join('');
-        console.log('Thought HTML generated, length:', thoughtHtml.length);
+        const thoughtHtml = thoughts.map(thought => {
+          const tagsStr = thought.tags && thought.tags.length > 0 ? thought.tags.join(', ') : '';
+          const shortContent = (thought.content || '').substring(0, 100) + '...';
+          return `
+            <div data-component="card" 
+                 data-type="thought" 
+                 data-title="${thought.content.substring(0, 50)}..." 
+                 data-description="${shortContent}" 
+                 data-tags="${tagsStr}" 
+                 data-thought-id="${thought.id}"
+                 data-plan-id="${thought.plan_id || ''}"
+                 tabindex="0"
+                 role="button"
+                 aria-label="View thought: ${thought.content.substring(0, 50)}">
+              <!-- Card structure will be initialized by Card component -->
+            </div>
+          `;
+        }).join('');
         thoughtsList.innerHTML = thoughtHtml;
       } else {
-        thoughtsList.innerHTML = '<li>No thoughts yet</li>';
+        thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">No thoughts yet</div></div>';
       }
+  
+      // Initialize components after rendering
+      if (window.CardComponent) new window.CardComponent();
   
       console.log('Adding click listeners');
       // Add click listeners for plans and thoughts
-      document.querySelectorAll('#plans-list li[data-plan-id]').forEach(li => addPlanClickListener(li));
-      document.querySelectorAll('#thoughts-list li[data-thought-id]').forEach(li => addThoughtClickListener(li));
-      console.log('Listeners added. Plans li count:', document.querySelectorAll('#plans-list li[data-plan-id]').length);
+      document.querySelectorAll('#plans-list [data-plan-id]').forEach(el => addPlanClickListener(el));
+      document.querySelectorAll('#thoughts-list [data-thought-id]').forEach(el => addThoughtClickListener(el));
+      console.log('Listeners added. Plans count:', document.querySelectorAll('#plans-list [data-plan-id]').length);
   
     } catch (error) {
       console.error('Error loading data details:', error.message);
       if (error.stack) console.error('Stack:', error.stack);
-      plansList.innerHTML = '<li>Failed to load</li>';
-      thoughtsList.innerHTML = '<li>Failed to load</li>';
+      plansList.innerHTML = '<div data-component="card"><div class="card-body">Failed to load</div></div>';
+      thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">Failed to load</div></div>';
     }
   }
 
@@ -102,20 +173,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         const results = await response.json();
 
         if (results.length > 0) {
-          searchResults.innerHTML = results.map(result =>
-            `<li data-${result.type}-id="${result.id}"><strong>${result.type.toUpperCase()}: ${result.title || 'Thought'}</strong><br>${result.content.substring(0, 100)}... <small>(${result.timestamp})</small> Tags: ${result.tags.join(', ')}</li>`
-          ).join('');
+          const searchHtml = results.map(result => {
+            const tagsStr = result.tags.join(', ');
+            const shortContent = (result.content || '').substring(0, 100) + '...';
+            const title = result.title || result.content.substring(0, 50) + '...';
+            return `
+              <div data-component="card" 
+                   data-type="${result.type}" 
+                   data-title="${title}" 
+                   data-description="${shortContent}" 
+                   data-tags="${tagsStr}" 
+                   ${result.type === 'plan' ? `data-plan-id="${result.id}"` : `data-thought-id="${result.id}"`}
+                   tabindex="0"
+                   role="button"
+                   aria-label="View ${result.type}: ${title}">
+              </div>
+            `;
+          }).join('');
+          searchResults.innerHTML = searchHtml;
           searchResults.style.display = 'block';
+          // Initialize components
+          if (window.CardComponent) new window.CardComponent();
           // Add click listeners for search results
-          document.querySelectorAll('#search-results li[data-plan-id]').forEach(li => addPlanClickListener(li));
-          document.querySelectorAll('#search-results li[data-thought-id]').forEach(li => addThoughtClickListener(li));
+          document.querySelectorAll('#search-results [data-plan-id]').forEach(el => addPlanClickListener(el));
+          document.querySelectorAll('#search-results [data-thought-id]').forEach(el => addThoughtClickListener(el));
         } else {
-          searchResults.innerHTML = '<li>No results found</li>';
+          searchResults.innerHTML = '<div data-component="card"><div class="card-body">No results found</div></div>';
           searchResults.style.display = 'block';
         }
       } catch (error) {
         console.error('Search error:', error);
-        searchResults.innerHTML = '<li>Search failed</li>';
+        searchResults.innerHTML = '<div data-component="card"><div class="card-body">Search failed</div></div>';
         searchResults.style.display = 'block';
       }
     });
@@ -151,13 +239,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Function to add plan click listener
-  function addPlanClickListener(li) {
-    li.style.cursor = 'pointer';
-    li.addEventListener('click', async () => {
-      const planId = li.dataset.planId;
+  function addPlanClickListener(el) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', async () => {
+      const planId = el.dataset.planId;
       
       // Hide main sections and search
-      document.querySelectorAll('section, #search-section').forEach(section => {
+      document.querySelectorAll('main section').forEach(section => {
         section.style.display = 'none';
       });
       searchResults.style.display = 'none';
@@ -170,16 +258,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Set loading state
       loadPlanDetails(planId);
     });
+
+    // Keyboard support
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.click();
+      }
+    });
   }
 
   // Function to add thought click listener
-  function addThoughtClickListener(li) {
-    li.style.cursor = 'pointer';
-    li.addEventListener('click', async () => {
-      const thoughtId = li.dataset.thoughtId;
+  function addThoughtClickListener(el) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', async () => {
+      const thoughtId = el.dataset.thoughtId;
       
       // Hide main sections and search
-      document.querySelectorAll('section, #search-section').forEach(section => {
+      document.querySelectorAll('main section').forEach(section => {
         section.style.display = 'none';
       });
       searchResults.style.display = 'none';
@@ -191,6 +287,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Set loading state
       loadThoughtDetails(thoughtId);
+    });
+
+    // Keyboard support
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.click();
+      }
     });
   }
 
@@ -220,7 +324,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         contentElement.textContent = plan.description || 'No description';
       }
-      document.getElementById('detail-status').textContent = plan.status;
+      const statusEl = document.getElementById('detail-status').querySelector('span');
+      statusEl.textContent = plan.status;
       document.getElementById('detail-status').style.display = 'block';
       
       currentPlanId = planId;
@@ -229,9 +334,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Render tags
       const tagsList = document.getElementById('tags-list');
       if (plan.tags && plan.tags.length > 0) {
-        tagsList.innerHTML = plan.tags.map(tag =>
-          `<span class="tag"><span class="tag-text">${tag}</span><button class="remove-tag" data-tag="${tag}">×</button></span>`
+        const tagsHtml = plan.tags.map(tag =>
+          `<span class="tag"><span class="tag-text">${tag}</span><button data-component="button" data-variant="ghost" data-size="sm" class="remove-tag" data-tag="${tag}" aria-label="Remove tag ${tag}">×</button></span>`
         ).join(' ');
+        tagsList.innerHTML = tagsHtml;
+        // Initialize buttons
+        if (window.ButtonComponent) new window.ButtonComponent();
         // Add remove listeners
         document.querySelectorAll('.remove-tag').forEach(btn => {
           btn.addEventListener('click', async (e) => {
@@ -264,9 +372,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       const linkedThoughtsList = document.getElementById('linked-thoughts-list');
       if (linkedThoughts.length > 0) {
-        linkedThoughtsList.innerHTML = linkedThoughts.map(thought =>
-          `<li data-thought-id="${thought.id}">${thought.content} <small>(${thought.timestamp})</small> ${thought.tags.length > 0 ? `<small>Tags: ${thought.tags.join(', ')}</small>` : ''}</li>`
+        const thoughtsHtml = linkedThoughts.map(thought =>
+          `<li data-thought-id="${thought.id}">${thought.content} <small>(${thought.timestamp})</small> ${thought.tags && thought.tags.length > 0 ? `<small>Tags: ${thought.tags.join(', ')}</small>` : ''}</li>`
         ).join('');
+        linkedThoughtsList.innerHTML = thoughtsHtml;
         // Add click listeners for linked thoughts
         document.querySelectorAll('#linked-thoughts-list li[data-thought-id]').forEach(li => addThoughtClickListener(li));
       } else {
@@ -294,20 +403,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('add-tag-input').value = '';
     
     try {
-      // Fetch thought details - since no specific endpoint, use GET /thoughts and find, but for simplicity, assume we fetch all or use search, but to make it work, we'll use a new endpoint if needed. Wait, no specific GET /thoughts/:id, so add it or fetch all.
-      // For now, to implement, let's assume we fetch /thoughts and find by id, but that's inefficient. Since task is to enhance, perhaps add GET /thoughts/:id in routes, but to keep simple, fetch /thoughts?limit=1 but no id filter. Wait, the getAll in db supports id filter.
-      // Looking back, routes/thoughts.js has no GET /:id, so I need to add it.
-      // But since task is UI, assume it's there or fetch all and find.
-      // To complete, let's fetch /thoughts and find the one with id.
-      const response = await fetch('/thoughts');
+      const response = await fetch(`/thoughts/${thoughtId}`);
       if (!response.ok) {
-        throw new Error(`Failed to fetch thoughts: ${response.status}`);
+        throw new Error(`Failed to fetch thought: ${response.status}`);
       }
-      const allThoughts = await response.json();
-      const thought = allThoughts.find(t => t.id === thoughtId);
-      if (!thought) {
-        throw new Error('Thought not found');
-      }
+      const thought = await response.json();
       
       // Render thought info
       document.getElementById('detail-title').textContent = 'Thought';
@@ -325,9 +425,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Render tags
       const tagsList = document.getElementById('tags-list');
       if (thought.tags && thought.tags.length > 0) {
-        tagsList.innerHTML = thought.tags.map(tag =>
-          `<span class="tag"><span class="tag-text">${tag}</span><button class="remove-tag" data-tag="${tag}">×</button></span>`
+        const tagsHtml = thought.tags.map(tag =>
+          `<span class="tag"><span class="tag-text">${tag}</span><button data-component="button" data-variant="ghost" data-size="sm" class="remove-tag" data-tag="${tag}" aria-label="Remove tag ${tag}">×</button></span>`
         ).join(' ');
+        tagsList.innerHTML = tagsHtml;
+        // Initialize buttons
+        if (window.ButtonComponent) new window.ButtonComponent();
         // Add remove listeners
         document.querySelectorAll('.remove-tag').forEach(btn => {
           btn.addEventListener('click', async (e) => {
@@ -375,9 +478,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('add-tag-btn').addEventListener('click', async () => {
     const input = document.getElementById('add-tag-input');
     const newTag = input.value.trim().toLowerCase();
-    if (newTag && !currentTags.includes(newTag)) { // Assume currentTags is set in load functions
+    if (newTag && !currentTags.includes(newTag)) {
       const type = document.getElementById('detail-type').textContent.toLowerCase();
-      const id = type === 'plan' ? currentPlanId : currentThoughtId; // Assume set in load
+      const id = type === 'plan' ? currentPlanId : currentThoughtId;
       await updateTags(id, type, { add: [newTag] });
       input.value = '';
       if (type === 'plan') {
@@ -391,11 +494,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Back button functionality
   document.getElementById('back-button').addEventListener('click', () => {
     document.getElementById('detail-panel').style.display = 'none';
-    document.querySelectorAll('section, #search-section').forEach(section => {
+    document.querySelectorAll('main section').forEach(section => {
       section.style.display = 'block';
     });
     searchResults.style.display = 'none';
     loadLists(currentTagFilter);
   });
 
+  // Re-initialize components on dynamic updates if needed
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.ButtonComponent) new window.ButtonComponent();
+    if (window.InputComponent) new window.InputComponent();
+    if (window.CardComponent) new window.CardComponent();
+  });
 });
