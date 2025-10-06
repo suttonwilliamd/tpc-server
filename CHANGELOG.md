@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.7.1] - 2025-10-06
 
 ### Changed
 - Refactored server.js into modular db/, routes/, middleware/ directories. Extracted DB logic to db/database.js, API routes to routes/plans.js, routes/thoughts.js, routes/context.js, error handling to middleware/errorHandler.js. Preserved all endpoints, static serving, test compatibility. No breaking changes. Reduced server.js to ~150 lines with createApp factory.
@@ -184,3 +184,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [2.6.0]: https://github.com/bitFlipper/tpc-server/compare/v2.5.0...v2.6.0
 [2.7.0]: https://github.com/bitFlipper/tpc-server/compare/v2.6.0...v2.7.0
+[2.7.1]: https://github.com/bitFlipper/tpc-server/compare/v2.7.0...v2.7.1
