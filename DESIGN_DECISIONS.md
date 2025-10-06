@@ -108,4 +108,40 @@
   - Scalability deferred: Single file DB/UI fine for prototype; context limits (last 10 thoughts) prevent overload.
   - Rationale from checklists: Core value (AI context storage, human audit) delivered early; enhancements (search, real-time) as "nice-to-haves."
 
+## Design System
+
+- **Core Principles**
+  - **Consistency**: Establishes reusable tokens and components to ensure uniform appearance and behavior across the UI, reducing maintenance and visual debt.
+  - **Scalability**: Modular design allows easy extension (e.g., new variants, themes) without refactoring existing code; supports future growth like additional components or breakpoints.
+  - **Accessibility**: Adheres to WCAG 2.1 AA guidelines—semantic HTML, sufficient contrast (4.5:1 for text), keyboard navigation, ARIA labels for interactive elements (e.g., buttons, inputs).
+  - **Performance**: CSS-only implementations (no JS for basic states); minimal DOM footprint; responsive by default to optimize for various devices.
+  - **Developer Experience**: Clear documentation in components (inline comments); utility classes for common patterns; theme-agnostic components that adapt via CSS variables.
+
+- **Design Tokens**
+  - Centralized in public/style.css using CSS custom properties (variables) at :root for global access.
+  - **Colors**: Semantic palette with light/dark variants—--color-primary (#007bff blue), --color-secondary (#6c757d gray), --color-success (#28a745 green), --color-warning (#ffc107 yellow), --color-error (#dc3545 red), neutral shades (--color-neutral-50 to --color-neutral-900 for grays). Themes override via [theme="dark"] selectors (e.g., --color-background: #ffffff light, #1a1a1a dark).
+  - **Typography**: Scales for hierarchy—--font-size-xs (12px) to --font-size-2xl (24px); --font-weight-normal (400), --font-weight-bold (600); --line-height-base (1.5), --line-height-heading (1.2). Font stack: system-ui, -apple-system, sans-serif (web-safe, performant).
+  - **Spacing**: Consistent scale for margins/padding—--space-xs (4px) to --space-2xl (48px); utility classes like .p-sm { padding: var(--space-sm); }.
+  - **Shadows**: Elevation system—--shadow-sm (0 1px 2px rgba(0,0,0,0.05)), --shadow-md (0 4px 6px rgba(0,0,0,0.1)), --shadow-lg (0 10px 15px rgba(0,0,0,0.1)).
+  - **Border Radius**: Rounded aesthetics—--radius-sm (4px), --radius-md (8px), --radius-lg (12px); applied to components for cohesion.
+  - Tokens are theme-aware (light/dark) and extensible (e.g., add --color-accent for custom palettes).
+
+- **Components**
+  - **Button**: Modular JS class in public/components/Button.js; variants (primary: filled blue, secondary: outlined, ghost: transparent); states (hover: scale 1.02 + color shift, active: inset shadow, disabled: opacity 0.5 + no pointer, loading: spinner overlay). Supports icons (prepend/append SVG), sizes (sm: 32px height, md: 40px, lg: 48px). Usage: new Button({ variant: 'primary', text: 'Save' }).render(container).
+  - **Input**: In public/components/Input.js; includes label, placeholder, value binding; states (focus: ring outline, error: red border + message). Supports types (text, search); validation via custom events (e.g., dispatch 'invalid' on bad input). Auto-resizes textarea variant.
+  - **Card**: In public/components/Card.js; structure (header/body/footer slots); variants (elevated: --shadow-md, outlined: border); themes adapt colors (e.g., dark mode text inversion). Hover: subtle lift (--shadow-lg + translateY(-1px)). Used for plan/thought displays with dynamic content insertion.
+
+- **Themes**
+  - Dual light/dark modes: Applied via <html theme="light|dark"> attribute; CSS selectors override variables (e.g., [theme="dark"] { --color-background: #1a1a1a; --color-text: #ffffff; }).
+  - Toggle: Dedicated Button in header (icon: sun/moon); persists via localStorage.setItem('theme', 'dark'); initializes on load with fallback to prefers-color-scheme.
+  - Integration: All components/tokens reference variables, ensuring automatic adaptation; no JS required for theme switching (pure CSS).
+
+- **Integration Notes**
+  - **Refactoring**: public/style.css reorganized—tokens first, then utilities (e.g., .grid { display: grid; gap: var(--space-md); }), component styles (scoped via classes like .btn-primary), theme blocks. Removed inline styles/duplicates from index.html.
+  - **JavaScript Updates**: public/index.js initializes theme on DOMContentLoaded; renders components (e.g., new Card(planData).render(list)); event listeners for toggle (document.querySelector('.theme-toggle').addEventListener('click', switchTheme)).
+  - **Layout**: Responsive Grid in main content—grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); media queries for breakpoints (mobile: 1fr, tablet: repeat(2, 1fr), desktop: repeat(3, 1fr)). Flexbox for internal alignments (e.g., card header: justify-content: space-between).
+  - **Backward Compatibility**: Existing UI elements updated to use new system without breaking functionality; no API changes.
+  - **Testing**: v2.8.test.js covers component rendering, theme switching, responsive states; e2e/v2.8.test.js verifies UI interactions (toggle, input validation, card hovers) across viewports.
+  - **Future-Proofing**: Tokens/components designed for v2.9+ (e.g., Badge for tags, easy addition via same pattern); aligns with CHECKLISTS/Phases.md for progressive enhancement.
+
 This design prioritizes rapid iteration, reliability, and clear human-AI interaction in a lightweight package.

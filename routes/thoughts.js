@@ -120,6 +120,36 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+router.get('/:id', async (req, res, next) => {
+  try {
+    const db = req.db || getDB();
+    const thoughtId = parseInt(req.params.id);
+
+    const thought = await new Promise((resolve, reject) => {
+      db.get("SELECT * FROM thoughts WHERE id = ?", [thoughtId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
+    if (!thought) {
+      return res.status(404).json({ error: 'Thought not found' });
+    }
+
+    const responseThought = {
+      id: thought.id.toString(),
+      content: thought.content,
+      timestamp: thought.timestamp,
+      tags: JSON.parse(thought.tags || '[]'),
+      ...(thought.plan_id && { plan_id: thought.plan_id.toString() })
+    };
+
+    res.status(200).json(responseThought);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.patch('/:id/tags', async (req, res, next) => {
   try {
     const db = req.db || getDB();

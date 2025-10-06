@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2025-10-06
+
+### Added
+- Foundational UI components: Button (with variants: primary, secondary, ghost; states: default, hover, active, disabled, loading), Input (with label, placeholder, error states), Card (with header, body, footer sections; variants: elevated, outlined; themes: light/dark).
+- CSS design tokens: Root variables for colors (--color-primary, --color-secondary, --color-success, --color-warning, --color-error, neutral shades), typography (--font-size-xs to --font-size-2xl, --font-weight-normal/bold), spacing (--space-xs to --space-2xl), shadows (--shadow-sm to --shadow-lg), border radius (--radius-sm to --radius-lg).
+- Light/dark theme toggle: Button in header with localStorage persistence, automatic detection via prefers-color-scheme media query.
+- Responsive Grid layout: CSS Grid for main content areas (plans/thoughts lists), flexbox for components; breakpoints for mobile (<768px: single column), tablet (768-1024px: two columns), desktop (>1024px: adaptive).
+
+### Changed
+- Refactored public/style.css: Consolidated into design system with CSS custom properties (variables) for tokens, utility classes for spacing/typography/shadows, and theme-specific selectors (:root[theme="light/dark"]).
+- Updated public/index.html and public/index.js: Integrated new components (Button, Input, Card) for UI elements (e.g., action buttons, search input, plan/thought cards); added theme initialization logic (load from localStorage, apply class to root, toggle handler).
+
+### Fixed
+- Critical bugs: Button validation (prevent invalid props), thought details fetch (handle empty responses), dynamic button initialization (ensure DOM ready).
+- High-priority issues from review: Theming inconsistencies (variable fallbacks), excessive console logs (removed dev-only), form validation gaps (client-side checks), test robustness (updated selectors for new components, fixed flaky waits).
+
 ## [2.7.1] - 2025-10-06
 
 ### Changed
@@ -166,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Storage in `data/thoughts.json` (empty array initially).
 - Tests for creation, validation, multiple thoughts, empty state, and persistence.
 
+[2.8.0]: https://github.com/bitFlipper/tpc-server/compare/v2.7.1...v2.8.0
 [2.4.0]: https://github.com/bitFlipper/tpc-server/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/bitFlipper/tpc-server/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/bitFlipper/tpc-server/compare/v2.1.0...v2.2.0
