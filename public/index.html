@@ -3,71 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TPC Server</title>
+    <title>tpc-server // thoughts & plans</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
 </head>
 <body>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="logo">🧠 tpc-server</h1>
+            <p class="tagline">thoughts & plans collection</p>
+        </div>
+    </header>
+
     <main class="main-container">
-        <section id="search-section">
-            <h2>Search</h2>
-            <input data-component="input" 
-                   data-type="search" 
-                   data-label="Search plans and thoughts" 
-                   id="search-input" 
-                   data-placeholder="Search plans and thoughts...">
-            <button data-component="button" data-variant="secondary" id="clear-search">Clear</button>
-            <div id="search-results" style="display: none;"></div>
+        <!-- Search Bar -->
+        <section class="search-section">
+            <div class="search-bar">
+                <input type="text" 
+                       id="search-input" 
+                       class="search-input"
+                       placeholder="Search thoughts and plans... (press Enter)">
+                <select id="type-filter" class="type-filter">
+                    <option value="all">All Types</option>
+                    <option value="thoughts">Thoughts</option>
+                    <option value="plans">Plans</option>
+                </select>
+            </div>
+            <div class="tag-filters" id="tag-filters">
+                <!-- Tag pills will be populated here -->
+            </div>
         </section>
 
-        <section id="filter-section">
-            <h2>Filter by Tags</h2>
-            <input data-component="input" 
-                   data-type="text" 
-                   data-label="Filter by Tags" 
-                   id="tag-filter" 
-                   data-placeholder="Enter tags (e.g., tag1 or any:tag1,tag2 or all:tag1,tag2)">
-            <button data-component="button" data-variant="secondary" id="clear-filter">Clear Filter</button>
-        </section>
-        
-        <section id="plans-section">
-            <h2>Plans List</h2>
-            <div id="plans-list">
-                <!-- Plans will be populated here as cards -->
+        <!-- Stats Bar -->
+        <section class="stats-bar">
+            <div class="stat">
+                <span class="stat-value" id="thought-count">—</span>
+                <span class="stat-label">thoughts</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="plan-count">—</span>
+                <span class="stat-label">plans</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="df-count">—</span>
+                <span class="stat-label">DF legends</span>
             </div>
         </section>
-        
-        <section id="thoughts-section">
-            <h2>Thoughts List</h2>
-            <div id="thoughts-list">
-                <!-- Thoughts will be populated here as cards -->
+
+        <!-- Tabs -->
+        <section class="tabs">
+            <button class="tab active" data-tab="thoughts">
+                <span class="tab-icon">💭</span> Thoughts
+            </button>
+            <button class="tab" data-tab="plans">
+                <span class="tab-icon">📋</span> Plans
+            </button>
+            <button class="tab" data-tab="context">
+                <span class="tab-icon">🎯</span> Context
+            </button>
+        </section>
+
+        <!-- Content Grid -->
+        <section class="content-grid">
+            <div class="cards-container" id="cards-container">
+                <!-- Cards will be populated here -->
             </div>
         </section>
+
+        <!-- Load More -->
+        <div class="load-more" id="load-more" style="display: none;">
+            <button class="btn btn-secondary" id="load-more-btn">Load More</button>
+        </div>
     </main>
-    
-    <div id="detail-panel" style="display: none;">
-        <h3 id="detail-type"></h3>
-        <h2 id="detail-title"></h2>
-        <div id="detail-content" class="description markdown-body"></div>
-        <p id="detail-status" style="display: none;"><strong>Status:</strong> <span></span></p>
-        <h3>Tags</h3>
-        <div id="tags-list"></div>
-        <input data-component="input" 
-               data-type="text" 
-               data-label="Add new tag" 
-               id="add-tag-input" 
-               data-placeholder="Add new tag">
-        <button data-component="button" data-variant="primary" id="add-tag-btn">Add Tag</button>
-        <h3>Changelog</h3>
-        <ul id="changelog-list"></ul>
-        <h3>Linked Thoughts</h3>
-        <ul id="linked-thoughts-list"></ul>
-        <button data-component="button" data-variant="primary" id="back-button">Back</button>
+
+    <!-- Detail Modal -->
+    <div class="modal-overlay" id="modal-overlay" style="display: none;">
+        <div class="modal">
+            <button class="modal-close" id="modal-close">×</button>
+            <div class="modal-header">
+                <span class="modal-type" id="modal-type">thought</span>
+                <h2 class="modal-title" id="modal-title"></h2>
+            </div>
+            <div class="modal-body">
+                <div class="modal-content" id="modal-content"></div>
+                <div class="modal-meta">
+                    <div class="meta-row" id="modal-status-row" style="display: none;">
+                        <span class="meta-label">Status:</span>
+                        <span class="status-badge" id="modal-status"></span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">Created:</span>
+                        <span class="meta-value" id="modal-timestamp"></span>
+                    </div>
+                    <div class="meta-row" id="modal-plan-row" style="display: none;">
+                        <span class="meta-label">Plan:</span>
+                        <span class="meta-value" id="modal-plan"></span>
+                    </div>
+                </div>
+                <div class="modal-tags">
+                    <h4>Tags</h4>
+                    <div class="tags-list" id="modal-tags"></div>
+                </div>
+                <div class="modal-changelog" id="modal-changelog" style="display: none;">
+                    <h4>Changelog</h4>
+                    <ul class="changelog-list" id="modal-changelog-list"></ul>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <footer class="footer">
+        <p>tpc-server v2.7 • CortexPool powered</p>
+    </footer>
     
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="components/Button.js"></script>
-    <script src="components/Input.js"></script>
-    <script src="components/Card.js"></script>
     <script src="index.js"></script>
 </body>
 </html>
