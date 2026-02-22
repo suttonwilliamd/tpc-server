@@ -52,6 +52,62 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+// POST /bulk - Bulk insert multiple thoughts at once
+router.post('/bulk', async (req, res, next) => {
+  try {
+    const { thoughts } = req.body;
+    
+    if (!thoughts || !Array.isArray(thoughts)) {
+      return res.status(400).json({ error: 'Thoughts must be an array of objects with content (and optional tags)' });
+    }
+    
+    if (thoughts.length > 1000) {
+      return res.status(400).json({ error: 'Maximum 1000 thoughts per bulk insert' });
+    }
+    
+    const db = req.db || getDB();
+    const timestamp = new Date().toISOString();
+    const insertedIds = [];
+    
+    const insertStmt = await db.prepare("INSERT INTO thoughts (timestamp, content, plan_id, tags) VALUES (?, ?, ?, ?)");
+    
+    for (const thought of thoughts) {
+      const content = thought.content;
+      if (!content || content.trim() === '') continue;
+      
+      let tags = [];
+      if (thought.tags && Array.isArray(thought.tags)) {
+        tags = thought.tags.filter(tag => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim().toLowerCase());
+      }
+      
+      const result = insertStmt.run(timestamp, content, null, JSON.stringify(tags));
+      insertedIds.push(result.lastID);
+    }
+    
+    console.log(`POST /thoughts/bulk: Inserted ${insertedIds.length} thoughts`);
+    res.status(201).json({ inserted: insertedIds.length, ids: insertedIds });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /cleanup - Remove buggy DF entries
+router.delete('/cleanup', async (req, res, next) => {
+  try {
+    const db = req.db || getDB();
+    const buggyTimestamps = ['2026-02-22T14:47', '2026-02-22T15:06', '2026-02-22T15:16'];
+    let totalDeleted = 0;
+    for (const ts of buggyTimestamps) {
+      const result = db.prepare("DELETE FROM thoughts WHERE content LIKE '%DF Legends%' AND timestamp LIKE ?").run(ts + '%');
+      totalDeleted += result.changes;
+    }
+    console.log(`Deleted ${totalDeleted} buggy DF entries`);
+    res.json({ deleted: totalDeleted });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /
 router.get('/', async (req, res, next) => {
   try {

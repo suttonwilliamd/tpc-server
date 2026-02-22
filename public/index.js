@@ -1,510 +1,319 @@
+// === tpc-server UI ===
+const API_BASE = '';
+
+// State
+let currentTab = 'thoughts';
+let currentFilter = { type: 'all', search: '', tags: [] };
+let allTags = new Set();
+let thoughts = [];
+let plans = [];
+let context = null;
+
+// === Init ===
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize components
-  if (window.ButtonComponent) new window.ButtonComponent();
-  if (window.InputComponent) new window.InputComponent();
-  if (window.CardComponent) new window.CardComponent();
-
-  const plansList = document.getElementById('plans-list');
-  const thoughtsList = document.getElementById('thoughts-list');
-  const searchInput = document.getElementById('search-input');
-  const searchResults = document.getElementById('search-results');
-  const tagFilterInput = document.getElementById('tag-filter');
-  const clearSearchBtn = document.getElementById('clear-search');
-  const clearFilterBtn = document.getElementById('clear-filter');
-
-  let currentSearch = '';
-  let currentTagFilter = '';
-  let currentPlanId = null;
-  let currentThoughtId = null;
-  let currentTags = [];
-
-  // Theme management
-  const themeToggle = document.createElement('button');
-  themeToggle.id = 'theme-toggle';
-  themeToggle.setAttribute('data-component', 'button');
-  themeToggle.setAttribute('data-variant', 'ghost');
-  themeToggle.textContent = 'Toggle Theme';
-  document.body.appendChild(themeToggle);
-
-  function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    themeToggle.textContent = savedTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
-  }
-
-  function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    themeToggle.textContent = newTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
-  }
-
-  initTheme();
-  themeToggle.addEventListener('click', toggleTheme);
-
-  // Media query listener for system theme changes
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-    if (!localStorage.getItem('theme')) {
-      document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-      themeToggle.textContent = e.matches ? 'Light Mode' : 'Dark Mode';
-    }
-  });
-
-  // Function to load lists with optional tag filter
-  async function loadLists(tagFilter = '') {
-    console.log('loadLists called with tagFilter:', tagFilter);
-    const url = tagFilter ? `/plans?tags=${encodeURIComponent(tagFilter)}` : '/plans';
-    const thoughtsUrl = tagFilter ? `/thoughts?tags=${encodeURIComponent(tagFilter)}` : '/thoughts';
-    console.log('Fetching from:', url, thoughtsUrl);
-  
-    // Set loading state
-    plansList.innerHTML = '<div data-component="card"><div class="card-body">Loading...</div></div>';
-    thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">Loading...</div></div>';
-  
-    try {
-      console.log('Starting Promise.all fetch');
-      const [plansResponse, thoughtsResponse] = await Promise.all([
-        fetch(url),
-        fetch(thoughtsUrl)
-      ]);
-      console.log('Fetch completed. Plans response ok:', plansResponse.ok, 'status:', plansResponse.status);
-      console.log('Thoughts response ok:', thoughtsResponse.ok, 'status:', thoughtsResponse.status);
-  
-      if (!plansResponse.ok) {
-        throw new Error(`Failed to fetch plans: ${plansResponse.status}`);
-      }
-      if (!thoughtsResponse.ok) {
-        throw new Error(`Failed to fetch thoughts: ${thoughtsResponse.status}`);
-      }
-  
-      console.log('Parsing JSON for plans');
-      const plans = await plansResponse.json();
-      console.log('Plans parsed, length:', plans.length, 'first plan:', plans[0]);
-      console.log('Parsing JSON for thoughts');
-      const thoughts = await thoughtsResponse.json();
-      console.log('Thoughts parsed, length:', thoughts.length, 'first thought:', thoughts[0]);
-  
-      // Render plans as cards
-      console.log('Rendering plans');
-      if (plans.length > 0) {
-        const planHtml = plans.map(plan => {
-          const tagsStr = plan.tags && plan.tags.length > 0 ? plan.tags.join(', ') : '';
-          return `
-            <div data-component="card" 
-                 data-type="plan" 
-                 data-title="${plan.title}" 
-                 data-status="${plan.status}" 
-                 data-tags="${tagsStr}" 
-                 data-description="${(plan.description || '').substring(0, 100)}..." 
-                 data-plan-id="${plan.id}"
-                 tabindex="0"
-                 role="button"
-                 aria-label="View plan: ${plan.title}">
-              <!-- Card structure will be initialized by Card component -->
-            </div>
-          `;
-        }).join('');
-        plansList.innerHTML = planHtml;
-      } else {
-        plansList.innerHTML = '<div data-component="card"><div class="card-body">No plans yet</div></div>';
-      }
-  
-      // Render thoughts as cards
-      console.log('Rendering thoughts');
-      if (thoughts.length > 0) {
-        const thoughtHtml = thoughts.map(thought => {
-          const tagsStr = thought.tags && thought.tags.length > 0 ? thought.tags.join(', ') : '';
-          const shortContent = (thought.content || '').substring(0, 100) + '...';
-          return `
-            <div data-component="card" 
-                 data-type="thought" 
-                 data-title="${thought.content.substring(0, 50)}..." 
-                 data-description="${shortContent}" 
-                 data-tags="${tagsStr}" 
-                 data-thought-id="${thought.id}"
-                 data-plan-id="${thought.plan_id || ''}"
-                 tabindex="0"
-                 role="button"
-                 aria-label="View thought: ${thought.content.substring(0, 50)}">
-              <!-- Card structure will be initialized by Card component -->
-            </div>
-          `;
-        }).join('');
-        thoughtsList.innerHTML = thoughtHtml;
-      } else {
-        thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">No thoughts yet</div></div>';
-      }
-  
-      // Initialize components after rendering
-      if (window.CardComponent) new window.CardComponent();
-  
-      console.log('Adding click listeners');
-      // Add click listeners for plans and thoughts
-      document.querySelectorAll('#plans-list [data-plan-id]').forEach(el => addPlanClickListener(el));
-      document.querySelectorAll('#thoughts-list [data-thought-id]').forEach(el => addThoughtClickListener(el));
-      console.log('Listeners added. Plans count:', document.querySelectorAll('#plans-list [data-plan-id]').length);
-  
-    } catch (error) {
-      console.error('Error loading data details:', error.message);
-      if (error.stack) console.error('Stack:', error.stack);
-      plansList.innerHTML = '<div data-component="card"><div class="card-body">Failed to load</div></div>';
-      thoughtsList.innerHTML = '<div data-component="card"><div class="card-body">Failed to load</div></div>';
-    }
-  }
-
-  // Initial load
-  loadLists();
-
-  // Search functionality
-  if (searchInput) {
-    searchInput.addEventListener('input', async (e) => {
-      currentSearch = e.target.value.trim();
-      if (currentSearch.length < 2) {
-        searchResults.style.display = 'none';
-        return;
-      }
-
-      try {
-        const response = await fetch(`/search?q=${encodeURIComponent(currentSearch)}&type=all&limit=20`);
-        if (!response.ok) {
-          throw new Error(`Search failed: ${response.status}`);
-        }
-        const results = await response.json();
-
-        if (results.length > 0) {
-          const searchHtml = results.map(result => {
-            const tagsStr = result.tags.join(', ');
-            const shortContent = (result.content || '').substring(0, 100) + '...';
-            const title = result.title || result.content.substring(0, 50) + '...';
-            return `
-              <div data-component="card" 
-                   data-type="${result.type}" 
-                   data-title="${title}" 
-                   data-description="${shortContent}" 
-                   data-tags="${tagsStr}" 
-                   ${result.type === 'plan' ? `data-plan-id="${result.id}"` : `data-thought-id="${result.id}"`}
-                   tabindex="0"
-                   role="button"
-                   aria-label="View ${result.type}: ${title}">
-              </div>
-            `;
-          }).join('');
-          searchResults.innerHTML = searchHtml;
-          searchResults.style.display = 'block';
-          // Initialize components
-          if (window.CardComponent) new window.CardComponent();
-          // Add click listeners for search results
-          document.querySelectorAll('#search-results [data-plan-id]').forEach(el => addPlanClickListener(el));
-          document.querySelectorAll('#search-results [data-thought-id]').forEach(el => addThoughtClickListener(el));
-        } else {
-          searchResults.innerHTML = '<div data-component="card"><div class="card-body">No results found</div></div>';
-          searchResults.style.display = 'block';
-        }
-      } catch (error) {
-        console.error('Search error:', error);
-        searchResults.innerHTML = '<div data-component="card"><div class="card-body">Search failed</div></div>';
-        searchResults.style.display = 'block';
-      }
-    });
-  }
-
-  // Tag filter functionality
-  if (tagFilterInput) {
-    tagFilterInput.addEventListener('input', (e) => {
-      currentTagFilter = e.target.value.trim();
-      if (currentTagFilter) {
-        loadLists(currentTagFilter);
-      } else {
-        loadLists();
-      }
-    });
-  }
-
-  // Clear buttons
-  if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', () => {
-      if (searchInput) searchInput.value = '';
-      searchResults.style.display = 'none';
-      currentSearch = '';
-    });
-  }
-
-  if (clearFilterBtn) {
-    clearFilterBtn.addEventListener('click', () => {
-      if (tagFilterInput) tagFilterInput.value = '';
-      loadLists();
-      currentTagFilter = '';
-    });
-  }
-
-  // Function to add plan click listener
-  function addPlanClickListener(el) {
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', async () => {
-      const planId = el.dataset.planId;
-      
-      // Hide main sections and search
-      document.querySelectorAll('main section').forEach(section => {
-        section.style.display = 'none';
-      });
-      searchResults.style.display = 'none';
-      
-      // Show detail panel
-      const detailPanel = document.getElementById('detail-panel');
-      detailPanel.style.display = 'block';
-      document.getElementById('detail-type').textContent = 'Plan';
-      
-      // Set loading state
-      loadPlanDetails(planId);
-    });
-
-    // Keyboard support
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        el.click();
-      }
-    });
-  }
-
-  // Function to add thought click listener
-  function addThoughtClickListener(el) {
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', async () => {
-      const thoughtId = el.dataset.thoughtId;
-      
-      // Hide main sections and search
-      document.querySelectorAll('main section').forEach(section => {
-        section.style.display = 'none';
-      });
-      searchResults.style.display = 'none';
-      
-      // Show detail panel
-      const detailPanel = document.getElementById('detail-panel');
-      detailPanel.style.display = 'block';
-      document.getElementById('detail-type').textContent = 'Thought';
-      
-      // Set loading state
-      loadThoughtDetails(thoughtId);
-    });
-
-    // Keyboard support
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        el.click();
-      }
-    });
-  }
-
-  // Function to load plan details
-  async function loadPlanDetails(planId) {
-    document.getElementById('detail-title').textContent = 'Loading...';
-    document.getElementById('detail-content').textContent = '';
-    document.getElementById('detail-status').textContent = '';
-    document.getElementById('changelog-list').innerHTML = '<li>Loading...</li>';
-    document.getElementById('linked-thoughts-list').innerHTML = '<li>Loading...</li>';
-    document.getElementById('tags-list').innerHTML = '<li>Loading...</li>';
-    document.getElementById('add-tag-input').value = '';
-    
-    try {
-      // Fetch plan details
-      const planResponse = await fetch(`/plans/${planId}`);
-      if (!planResponse.ok) {
-        throw new Error(`Failed to fetch plan: ${planResponse.status}`);
-      }
-      const plan = await planResponse.json();
-      
-      // Render plan info
-      document.getElementById('detail-title').textContent = plan.title;
-      const contentElement = document.getElementById('detail-content');
-      if (typeof marked !== 'undefined' && plan.description) {
-        contentElement.innerHTML = marked.parse(plan.description);
-      } else {
-        contentElement.textContent = plan.description || 'No description';
-      }
-      const statusEl = document.getElementById('detail-status').querySelector('span');
-      statusEl.textContent = plan.status;
-      document.getElementById('detail-status').style.display = 'block';
-      
-      currentPlanId = planId;
-      currentTags = plan.tags || [];
-      
-      // Render tags
-      const tagsList = document.getElementById('tags-list');
-      if (plan.tags && plan.tags.length > 0) {
-        const tagsHtml = plan.tags.map(tag =>
-          `<span class="tag"><span class="tag-text">${tag}</span><button data-component="button" data-variant="ghost" data-size="sm" class="remove-tag" data-tag="${tag}" aria-label="Remove tag ${tag}">×</button></span>`
-        ).join(' ');
-        tagsList.innerHTML = tagsHtml;
-        // Initialize buttons
-        if (window.ButtonComponent) new window.ButtonComponent();
-        // Add remove listeners
-        document.querySelectorAll('.remove-tag').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const tag = e.target.dataset.tag;
-            await updateTags(planId, 'plan', { remove: [tag] });
-            loadPlanDetails(planId); // Reload
-          });
-        });
-      } else {
-        tagsList.innerHTML = '<li>No tags</li>';
-      }
-      
-      // Render changelog
-      const changelogList = document.getElementById('changelog-list');
-      if (plan.changelog && plan.changelog.length > 0) {
-        changelogList.innerHTML = plan.changelog.map(change =>
-          `<li>${change.change} <small>(${change.timestamp})</small></li>`
-        ).join('');
-      } else {
-        changelogList.innerHTML = '<li>No changelog entries</li>';
-      }
-      
-      // Fetch and render linked thoughts
-      const thoughtsResponse = await fetch(`/plans/${planId}/thoughts`);
-      if (!thoughtsResponse.ok) {
-        throw new Error(`Failed to fetch thoughts: ${thoughtsResponse.status}`);
-      }
-      const linkedThoughts = await thoughtsResponse.json();
-      
-      const linkedThoughtsList = document.getElementById('linked-thoughts-list');
-      if (linkedThoughts.length > 0) {
-        const thoughtsHtml = linkedThoughts.map(thought =>
-          `<li data-thought-id="${thought.id}">${thought.content} <small>(${thought.timestamp})</small> ${thought.tags && thought.tags.length > 0 ? `<small>Tags: ${thought.tags.join(', ')}</small>` : ''}</li>`
-        ).join('');
-        linkedThoughtsList.innerHTML = thoughtsHtml;
-        // Add click listeners for linked thoughts
-        document.querySelectorAll('#linked-thoughts-list li[data-thought-id]').forEach(li => addThoughtClickListener(li));
-      } else {
-        linkedThoughtsList.innerHTML = '<li>No linked thoughts</li>';
-      }
-      
-    } catch (error) {
-      console.error('Error loading plan details:', error);
-      document.getElementById('detail-title').textContent = 'Error loading plan details';
-      document.getElementById('detail-content').textContent = error.message;
-      document.getElementById('changelog-list').innerHTML = '<li>Error loading changelog</li>';
-      document.getElementById('linked-thoughts-list').innerHTML = '<li>Error loading thoughts</li>';
-      document.getElementById('tags-list').innerHTML = '<li>Error loading tags</li>';
-    }
-  }
-
-  // Function to load thought details
-  async function loadThoughtDetails(thoughtId) {
-    document.getElementById('detail-title').textContent = 'Loading...';
-    document.getElementById('detail-content').textContent = '';
-    document.getElementById('detail-status').style.display = 'none';
-    document.getElementById('changelog-list').innerHTML = '<li>N/A for thoughts</li>';
-    document.getElementById('linked-thoughts-list').innerHTML = '<li>N/A for thoughts</li>';
-    document.getElementById('tags-list').innerHTML = '<li>Loading...</li>';
-    document.getElementById('add-tag-input').value = '';
-    
-    try {
-      const response = await fetch(`/thoughts/${thoughtId}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch thought: ${response.status}`);
-      }
-      const thought = await response.json();
-      
-      // Render thought info
-      document.getElementById('detail-title').textContent = 'Thought';
-      const contentElement = document.getElementById('detail-content');
-      if (typeof marked !== 'undefined' && thought.content) {
-        contentElement.innerHTML = marked.parse(thought.content);
-      } else {
-        contentElement.textContent = thought.content || 'No content';
-      }
-      document.getElementById('detail-status').style.display = 'none';
-      
-      currentThoughtId = thoughtId;
-      currentTags = thought.tags || [];
-      
-      // Render tags
-      const tagsList = document.getElementById('tags-list');
-      if (thought.tags && thought.tags.length > 0) {
-        const tagsHtml = thought.tags.map(tag =>
-          `<span class="tag"><span class="tag-text">${tag}</span><button data-component="button" data-variant="ghost" data-size="sm" class="remove-tag" data-tag="${tag}" aria-label="Remove tag ${tag}">×</button></span>`
-        ).join(' ');
-        tagsList.innerHTML = tagsHtml;
-        // Initialize buttons
-        if (window.ButtonComponent) new window.ButtonComponent();
-        // Add remove listeners
-        document.querySelectorAll('.remove-tag').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const tag = e.target.dataset.tag;
-            await updateTags(thoughtId, 'thought', { remove: [tag] });
-            loadThoughtDetails(thoughtId); // Reload
-          });
-        });
-      } else {
-        tagsList.innerHTML = '<li>No tags</li>';
-      }
-      
-      document.getElementById('changelog-list').innerHTML = '<li>No changelog for thoughts</li>';
-      document.getElementById('linked-thoughts-list').innerHTML = '<li>No linked items for thoughts</li>';
-      
-    } catch (error) {
-      console.error('Error loading thought details:', error);
-      document.getElementById('detail-title').textContent = 'Error loading thought details';
-      document.getElementById('detail-content').textContent = error.message;
-      document.getElementById('tags-list').innerHTML = '<li>Error loading tags</li>';
-    }
-  }
-
-  // Function to update tags
-  async function updateTags(id, type, body) {
-    const url = type === 'plan' ? `/plans/${id}/tags` : `/thoughts/${id}/tags`;
-    try {
-      const response = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to update tags: ${response.status}`);
-      }
-      return await response.json();
-    } catch (error) {
-      console.error('Error updating tags:', error);
-      alert('Failed to update tags');
-    }
-  }
-
-  // Add tag functionality
-  document.getElementById('add-tag-btn').addEventListener('click', async () => {
-    const input = document.getElementById('add-tag-input');
-    const newTag = input.value.trim().toLowerCase();
-    if (newTag && !currentTags.includes(newTag)) {
-      const type = document.getElementById('detail-type').textContent.toLowerCase();
-      const id = type === 'plan' ? currentPlanId : currentThoughtId;
-      await updateTags(id, type, { add: [newTag] });
-      input.value = '';
-      if (type === 'plan') {
-        loadPlanDetails(id);
-      } else {
-        loadThoughtDetails(id);
-      }
-    }
-  });
-
-  // Back button functionality
-  document.getElementById('back-button').addEventListener('click', () => {
-    document.getElementById('detail-panel').style.display = 'none';
-    document.querySelectorAll('main section').forEach(section => {
-      section.style.display = 'block';
-    });
-    searchResults.style.display = 'none';
-    loadLists(currentTagFilter);
-  });
-
-  // Re-initialize components on dynamic updates if needed
-  document.addEventListener('DOMContentLoaded', () => {
-    if (window.ButtonComponent) new window.ButtonComponent();
-    if (window.InputComponent) new window.InputComponent();
-    if (window.CardComponent) new window.CardComponent();
-  });
+    await loadStats();
+    await loadTags();
+    await loadContext();
+    await loadData();
+    setupEventListeners();
+    renderTags();
 });
+
+// === API Calls ===
+async function loadStats() {
+    try {
+        const [thoughtsRes, plansRes] = await Promise.all([
+            fetch(`${API_BASE}/thoughts?limit=1`),
+            fetch(`${API_BASE}/plans?limit=1`)
+        ]);
+        
+        // Get counts from headers or by loading all
+        const thoughtsAll = await fetch(`${API_BASE}/thoughts`).then(r => r.json());
+        const plansAll = await fetch(`${API_BASE}/plans`).then(r => r.json());
+        
+        document.getElementById('thought-count').textContent = thoughtsAll.length.toLocaleString();
+        document.getElementById('plan-count').textContent = plansAll.length;
+        
+        // Count DF legends
+        const dfCount = thoughtsAll.filter(t => 
+            t.tags && t.tags.includes('dwarf-fortress')
+        ).length;
+        document.getElementById('df-count').textContent = dfCount.toLocaleString();
+    } catch (e) {
+        console.error('Failed to load stats:', e);
+    }
+}
+
+async function loadTags() {
+    try {
+        const thoughts = await fetch(`${API_BASE}/thoughts`).then(r => r.json());
+        thoughts.forEach(t => {
+            if (t.tags) t.tags.forEach(tag => allTags.add(tag));
+        });
+    } catch (e) {
+        console.error('Failed to load tags:', e);
+    }
+}
+
+async function loadContext() {
+    try {
+        context = await fetch(`${API_BASE}/context`).then(r => r.json());
+    } catch (e) {
+        console.error('Failed to load context:', e);
+    }
+}
+
+async function loadData() {
+    try {
+        thoughts = await fetch(`${API_BASE}/thoughts`).then(r => r.json());
+        plans = await fetch(`${API_BASE}/plans`).then(r => r.json());
+        render();
+    } catch (e) {
+        console.error('Failed to load data:', e);
+    }
+}
+
+// === Event Listeners ===
+function setupEventListeners() {
+    // Search
+    document.getElementById('search-input').addEventListener('input', debounce(e => {
+        currentFilter.search = e.target.value.toLowerCase();
+        render();
+    }, 300));
+
+    document.getElementById('search-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            currentFilter.search = e.target.value.toLowerCase();
+            render();
+        }
+    });
+
+    // Type filter
+    document.getElementById('type-filter').addEventListener('change', e => {
+        currentFilter.type = e.target.value;
+        render();
+    });
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentTab = tab.dataset.tab;
+            render();
+        });
+    });
+
+    // Modal close
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('modal-overlay').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeModal();
+    });
+
+    // Keyboard
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeModal();
+    });
+}
+
+// === Rendering ===
+function render() {
+    const container = document.getElementById('cards-container');
+    let items = [];
+
+    if (currentTab === 'thoughts') {
+        items = thoughts.filter(t => filterItem(t, 'thought'));
+    } else if (currentTab === 'plans') {
+        items = plans.filter(p => filterItem(p, 'plan'));
+    } else if (currentTab === 'context') {
+        // Context tab shows both
+        const ctxThoughts = (context?.last10Thoughts || []).filter(t => filterItem(t, 'thought'));
+        const ctxPlans = (context?.incompletePlans || []).filter(p => filterItem(p, 'plan'));
+        items = [...ctxPlans.map(p => ({...p, _type: 'plan', _source: 'context'})), 
+                 ...ctxThoughts.map(t => ({...t, _type: 'thought', _source: 'context'}))];
+    }
+
+    if (items.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">${currentTab === 'thoughts' ? '💭' : '📋'}</div>
+                <p class="empty-state-text">No ${currentTab} found</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = items.slice(0, 50).map(item => renderCard(item)).join('');
+    
+    // Add click handlers
+    container.querySelectorAll('.card').forEach((card, i) => {
+        card.addEventListener('click', () => openModal(items[i]));
+    });
+}
+
+function filterItem(item, type) {
+    // Type filter
+    if (currentFilter.type !== 'all' && currentFilter.type !== type) return false;
+    
+    // Search filter
+    if (currentFilter.search) {
+        const searchStr = (item.content || item.title || item.description || '').toLowerCase();
+        if (!searchStr.includes(currentFilter.search)) return false;
+    }
+    
+    // Tag filter
+    if (currentFilter.tags.length > 0) {
+        const itemTags = item.tags || [];
+        if (!currentFilter.tags.some(tag => itemTags.includes(tag))) return false;
+    }
+    
+    return true;
+}
+
+function renderCard(item) {
+    const isThought = item._type === 'thought' || item.content !== undefined;
+    const type = isThought ? 'thought' : 'plan';
+    const title = isThought ? 
+        (item.content ? item.content.substring(0, 60) + (item.content.length > 60 ? '...' : '') : 'Untitled') :
+        (item.title || 'Untitled');
+    const preview = isThought ? 
+        (item.content || '') : 
+        (item.description || '');
+    const tags = item.tags || [];
+    const timestamp = item.timestamp || item.created_at;
+    const status = item.status;
+    
+    return `
+        <div class="card">
+            <span class="card-type ${type}">${type}</span>
+            <h3 class="card-title">${escapeHtml(title)}</h3>
+            <p class="card-preview">${escapeHtml(preview.substring(0, 150))}</p>
+            <div class="card-footer">
+                <span class="card-date">${formatDate(timestamp)}</span>
+                <div class="card-tags">
+                    ${status ? `<span class="status-badge ${status}">${status.replace('_', ' ')}</span>` : ''}
+                    ${tags.slice(0, 3).map(tag => `<span class="card-tag">${escapeHtml(tag)}</span>`).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderTags() {
+    const container = document.getElementById('tag-filters');
+    const sortedTags = Array.from(allTags).sort();
+    
+    container.innerHTML = sortedTags.slice(0, 15).map(tag => `
+        <button class="tag-pill" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>
+    `).join('');
+    
+    container.querySelectorAll('.tag-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            const tag = pill.dataset.tag;
+            if (currentFilter.tags.includes(tag)) {
+                currentFilter.tags = currentFilter.tags.filter(t => t !== tag);
+                pill.classList.remove('active');
+            } else {
+                currentFilter.tags.push(tag);
+                pill.classList.add('active');
+            }
+            render();
+        });
+    });
+}
+
+// === Modal ===
+function openModal(item) {
+    const isThought = item._type === 'thought' || item.content !== undefined;
+    const type = isThought ? 'thought' : 'plan';
+    
+    document.getElementById('modal-type').textContent = type;
+    document.getElementById('modal-title').textContent = isThought ? 
+        (item.content ? item.content.substring(0, 100) : 'Untitled') : 
+        (item.title || 'Untitled');
+    
+    document.getElementById('modal-content').textContent = isThought ? 
+        (item.content || '') : 
+        (item.description || '');
+    
+    document.getElementById('modal-timestamp').textContent = formatDate(item.timestamp || item.created_at);
+    
+    // Status
+    const statusRow = document.getElementById('modal-status-row');
+    if (item.status) {
+        statusRow.style.display = 'flex';
+        document.getElementById('modal-status').textContent = item.status.replace('_', ' ');
+        document.getElementById('modal-status').className = `status-badge ${item.status}`;
+    } else {
+        statusRow.style.display = 'none';
+    }
+    
+    // Plan link
+    const planRow = document.getElementById('modal-plan-row');
+    if (item.plan_id) {
+        planRow.style.display = 'flex';
+        document.getElementById('modal-plan').textContent = `Plan #${item.plan_id}`;
+    } else {
+        planRow.style.display = 'none';
+    }
+    
+    // Tags
+    const tags = item.tags || [];
+    document.getElementById('modal-tags').innerHTML = tags.map(tag => 
+        `<span class="card-tag">${escapeHtml(tag)}</span>`
+    ).join('');
+    
+    // Changelog
+    const changelogRow = document.getElementById('modal-changelog');
+    if (item.changelog && item.changelog.length > 0) {
+        changelogRow.style.display = 'block';
+        document.getElementById('modal-changelog-list').innerHTML = item.changelog.map(entry => 
+            `<li>${escapeHtml(JSON.stringify(entry))}</li>`
+        ).join('');
+    } else {
+        changelogRow.style.display = 'none';
+    }
+    
+    document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('modal-overlay').style.display = 'none';
+}
+
+// === Utilities ===
+function debounce(fn, delay) {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+    };
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function formatDate(isoString) {
+    if (!isoString) return '—';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
+    if (diff < 604800000) return `${Math.floor(diff/86400000)}d ago`;
+    
+    return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    });
+}
