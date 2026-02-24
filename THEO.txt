@@ -1,0 +1,386 @@
+I try my best to not talk too much about buzzwordy, annoying things that I don't see much value in. And that's why I only 
+have one video about model context protocol or MCP as many of y'all know it. I just don't see that much value in 
+the standard yet. And I do see a lot of problems that it causes. That's why I did a video about how much I think it 
+sucks and how Anthropic is starting to agree. And that video performed way better than I expected it to. And it 
+seems like I'm not the only one who feels that way because Anthropic is tripling down. They just introduced the 
+new advanced tool use on the cloud developer platform. Normally advanced means they're making something more 
+complex or detailed or capable, but in this case advanced seems to mean they're trying to make it work at all. This is 
+going to be a fun deep dive for all of the problems that exist inside of MCP to all of the weird workarounds that are 
+now being proposed to how Anthropic has been thinking or not really thinking about engineering. And being that this 
+is a company that loves to send errors down as status code 200 breaking 
+implementations for dozens if not hundreds of companies, I'm sure that their implementation of these 
+engineering things are they're going to be good. Right. Right. Someone's going to have to pay 
+for my therapy after this one. So, let's hear a quick word from today's sponsor. There's a lot of good debate to be had about where AI fits in our dev 
+workflows. Is it good to have it in the editor? Is it good to have it triaging tickets? Is it good to have it rewriting all of our code for us? We can debate 
+all of those things, but there's one I don't think we can. AI is incredible for code review. I don't care what you're 
+working on or how you're building it. If you don't have an AI taking a look at that code occasionally just to make sure 
+changes make sense, you're wasting not only your own time, but a bunch of your co-workers time, too. It's unfair to 
+your co-workers to send them some random slot PR that you haven't had reviewed yet and then the human tells you all 
+these things you missed and now you have to go through this whole long back and forth loop. Or you could just use Grapile. Seriously, AI code review has 
+changed how I run my teams. The fact that I can file a PR, immediately have a handful of small things to go repair, go 
+do those changes before I even bother any of my teammates has made me much more pleasant to work with. How many 
+times have you reviewed a PR, noticed three random small things that like anything should have been able to catch, 
+but then the person that you're reviewing the code of is already in bed. Now you have to wait till the next day and go through the whole loop. The 
+result is that code review ends up taking longer than the actual changes did so often. Think about how many PRs 
+you have open that are just sitting there and the humans don't want to review it. Human review becomes so much smoother when you have a tool like 
+Reptile smoothing it out for you. If you want to see what it's like, go check out any of my open- source repos. I'm using 
+it on all of them. Now, here's a review that Grappile left of this PR where I'm moving the SnitchBench AI SDK over to 
+latest version and making a bunch of other random changes. It leaves a summary of what the changes are. It gives a confidence score, which I've 
+grown to love. I just won't merge if this is below a four now. And it has saved me so much trouble. It leaves the 
+confidence score for each individual file. And this is super helpful because I know the one file index is the place 
+where it has some lack of confidence. Everything else it's good for. And here's a thing that it caught that I 
+honestly wish I caught before myself. I had a fun back and forth when I was filming a video about AI code stuff 
+because it showed me this and I went and learned something as a result of this feedback it gave. Graptile doesn't feel like a thing you spend a lot of time in. 
+It just lives inside of your GitHub and you don't have to do anything else. If you're doing code reviews on GitHub and 
+you're not using Gravile, just go give it a shot. I think you'll be surprised. Check them out now at soyv.link/graphile. 
+Introducing advanced tool use on the Claude developer platform. They're adding three beta features that let 
+Claude discover, learn, and execute tools dynamically. This is the key. Discover, learn, and execute 
+dynamically. There's a lot of problems with MCP. One of the biggest ones is that you have to add all of the MCP 
+tools to the context that is like your system prompt. You have to tell the model, here are all of the things you 
+can do and how you do them. which sounds fine until you realize that you're handing a bunch of tools like let's say 
+you use the Superbase MCP that has tens of thousands of lines of context describing how to use it and then you're 
+asking the model to make a front-end change. It doesn't need to touch superbase or know anything about Superbase. But now every single step, 
+every single prompt, every single back and forth during an execution in a loop, it's going to be including tens of 
+thousands of tokens that aren't relevant to the thing you're trying to do because it doesn't need the tool when it's not 
+using the tool, but it's still there always. Imagine a dictionary and you use 
+this dictionary to find things. You want like look in to go find a word. Ideally, 
+you would be able to flip to a section roughly with the right first letter, see how close you are, and then fly through 
+to the place you want to be. MCP effectively works by making you read every single definition from the first 
+word on the first page until you get where you want to be. And then you have to keep reading the rest of the dictionary after and then you can come 
+back and say, "This is the definition of that word." Insane. Every single thing in your dictionary has to be read every 
+single time you do anything. And by the time you finish reading it, there's a good chance you lost track of what you 
+were there for in the first place, which the LLM love to do as well. If you bloat an agent with all of this MCP context, 
+and it doesn't need any of it for the task is executing, you made it more expensive, slower, and dumber, all under 
+the guise of MCP support. Great. Awesome. 
+Yeah. So, how is Anthropic trying to solve these problems? The future of AI 
+agents is one where models work seamlessly across hundreds of thousands of tools. An IDE assistant that 
+integrates Git operations, file manipulation, package managers, testing frameworks, and deployment pipelines. An 
+operations coordinator that connects Slack, GitHub, Google Docs, Jira, company databases, and dozens of MCP 
+servers simultaneously. To build effective agents, they need to work with unlimited tool libraries 
+without stuffing every definition into context upfront. Again, this is the problem. When you give an agent a tool, 
+the agent needs to have the definition of the tool in its context or it can't use it. But now, it's just there when it 
+doesn't need to be. Our blog article on using code execution with MCP discussed how tool results in definitions can 
+sometimes consume 50,000 plus tokens before an agent even starts to read the request. Agents should discover and load 
+tools on demand, keeping only what's relevant for the current task. Yes. 
+Yes. There's a lot of different ways to do this. Something I've seen a couple people experimenting with is the idea of 
+a cheap, fast, large context like model running between each step, identifying 
+what the step's going to do and saying, "Oh, this step's going to need these tools." And it adjusts the system prompt 
+with the right tools dynamically based on the task at hand for that one specific turn. If you're not familiar 
+with turns, whenever a tool call happens with an agent, it's not pausing the execution and then continuing. When a 
+tool is run, the agent is now done, the model has completed its result. The tool 
+runs, adds another bit of data to the message history, and then when you send a new message, it will include that in 
+the history. That makes sense. When I send a message, the model responds and then I send another message. Obviously, it's going to include the whole history, 
+but the tool is effectively working as a person in between each step. And when the tool is done, it adds that to the 
+history and then the whole history reruns again with the model. That's how tool calling works. If you do a request 
+that is update this file in my codebase, it does a tool call to find the file. It 
+does a tool call to look up on Google search or something how to do the change. And it does another tool call to 
+edit the file. The model made three requests during that request. You might have only sent one message, but it sent 
+the whole history three times and each additional time there was way more context. But if you have this giant tool 
+definition at the front, that entire tool definition is now included in all of those subsequent requests. Sometimes 
+hundreds if not thousands of these per prompt from a user. That is horrifying. It wastes a ton of context. It wastes a 
+ton of money. It wastes a ton of time. And it makes the model dumber because there's useless information in its history. So the experiment I've seen 
+people doing is at each of those steps, a small model looks and sees what's going to happen next and adjusts the 
+system prompt for that sub piece to include the correct tools. Seems cool. Also seems like anthropics 
+going the other way with discovery where the model can find the tools as part of its loop rather than the model being 
+handed the right tools during its loop. In my previous video about all this stuff, we talked about the code execution of MCP thing, which I actually 
+think is quite cool. If you give the agent an SDK with all of these things in it as code rather than as a bunch of 
+wordy context up front, it can write code to execute things significantly better. Agents need the ability to call 
+tools from code. When using natural language tool calling, each invocation requires a full inference pass and 
+intermediate results pile up in context whether they're useful or not. So here we have our context. We have the system 
+prompt, the tool definitions, the user message. From here, it goes to the model. It responds with additional text, 
+both a message that you can see and a tool call that it should do. The tool call goes and executes in whatever like 
+hardness you're using, in this case an MCP server. It gets added back to the context window to the history and then 
+that whole history is sent back to the model. So the thing I was saying before, we have the system prompt, the tool definitions, the user message all gets 
+sent. It responds with the assistant message and the tool request. the result comes in and then all of this the 
+entirety of that content here everything in the history up till now is sent back to the model to generate a new response. 
+Now imagine it needs to do two subsequent requests here. It needs to do one to look up a user's ID and then it 
+needs to do another tool call to update something for that user in a database. Now it needs to do two full turns, one 
+with even more history than the previous one in order to execute those things. But if it could just write TypeScript 
+that looks up the user by the ID and then updates the database, it can do it in one tool call instead of two or 20 or 
+200. This is why the code execution thing makes a lot of sense because if you know exactly what to do with the 
+result of a tool call, you shouldn't need to send the entire history over to do it. Imagine a restaurant and you're 
+the guy running the kitchen. You need some hard-boiled eggs for a dish. You can tell someone to go boil some eggs 
+and then they show up with the pile of boiled eggs still in the shells. not useful for anything yet. Then you say 
+everything that happened before, all of the steps again. You give them all of the instructions for the recipe, and 
+then say, "Okay, now that you know all of that, go take off the shells." What if when you first gave the person the 
+instruction to get the boiled eggs, you also told them to remove the shells before they come back? Now, there is way 
+less back and forth, way less [ __ ] that is blocking all of this. When you 
+remember how dumb these models are, it's insane that we're not doing these things better already. They're good at writing 
+code though. So inside this example, it can get the right sheet from Google, filter for the ones you want, and then 
+do something like just giving you the data you want. So instead of responding with all of the data from the tool, you 
+can filter it with code and have less [ __ ] going into context. Instead of requiring multiple back and forths in 
+order to execute the next step, you can have all of it go through in one pass. It's just it makes so much sense to do 
+this with code and not to do this with like the LLM. If you're using your LLM to filter data, that would be a two line 
+of code. You're too MCP build and you need help. Let the code run. It's really good at 
+these things. So thankfully, Enthropic, Cloudflare, and I all agree that calling 
+tools from code makes way more sense a significant portion of the time. It's rare that Cloudflare, Anthropic, and I 
+all agree on anything. So think that's a useful bit of context. Code is a natural 
+fit for orchestration logic like loops, conditionals, and data transformations like a basic filter. Yeah, agents need 
+the flexibility to choose between code execution and inference based on the task at hand. I can see it. Agents also 
+need to learn correct tool usage from examples, not just schema definitions. JSON scheas define what's structurally 
+valid, but can't express usage patterns, when to include optional parameters, which combinations make sense, or which 
+conventions your API expects. And that's why they're releasing three new features. Tool search tool, which is 
+just the funniest name ever. Then there's a programmatic tool calling tool, which allows for Claude to invoke 
+tools in a context execution environment, reducing the impact on the model's context window. This is what we're talking about before. Let it 
+execute code. Seems like they're building their own sandbox for it. Previously, I recommended Daytona. So, 
+you could set this up for any agent on any platform yourself. So, if you want to set up your own way for code to be 
+executed in one of these environments, Daytona is the easiest and most reliable by far. They're a sponsor, but I 
+actually genuinely really like them. And I know that my channel manager and fellow YouTuber Ben has been using them 
+for a ton of [ __ ] They might even be the sponsor of this video. I don't know yet. We don't know when we're filming what the sponsor will be. And then 
+there's the tool use examples providing a universal standard for demonstrating how to effectively use a given tool cuz 
+universal standards from Anthropic have a really good record thus far. They used an O standard for MCP that has never 
+been used in production by anyone and they're moving off it because no one knows how to implement it because it 
+sucks. Yeah, great. So, they made it so that you can find the right tools and 
+not include them. Execute tools without having the model do it at all and examples so the model won't do it wrong. 
+These all feel kind of like duct tape to a bad standard, but if it's going to make these things useful, cool. They're 
+going to be more useful. In internal testing, we found these features have helped us build things that wouldn't have been possible with conventional 
+tool use patterns. For example, Cloud for Excel uses programmatic tool calling to read and modify spreadsheets with 
+thousands of rows without overloading the model's context window. Yes, duh. 
+Based on our experience, we believe these features open up new possibilities for what you can build with Claude. 
+Apparently, you can solve this puzzle game. The next section is about tool search. They define a clear challenge 
+here. Tool definitions provide important context, but as more servers connect, these tokens can add up. Also, can we 
+talk about how insane it is that MCP effectively requires a full server? You 
+want to run your MCP stuff on serverless? Good luck. Have fun. It's assuming a stateful long connection that 
+it can use at any point during execution and have an exact history shared between the two. The MCP standard genuinely 
+really sucks to implement on the server side, which is why most of the coolest MCP stuff requires that you run a 
+process in the background in Python on your computer to allow your editor to connect to it to run random bash 
+commands. It can't invoke the environment. It has to have a connection to an existing environment to do 
+anything. It's an interesting standard. So consider a basic setup with a handful 
+of tools. Here you have the GitHub server which has 35 tools, the Slack server with 11, Sentry Server with five, 
+Graphfana with five, and Splunk with two. These 58 tools consume 55,000 
+tokens before the conversation even starts. Add more servers like Jira, which alone uses 17,000 tokens, and 
+you're quickly approaching 100K token overhead. And they've seen tool definitions consume up to 134K tokens. 
+This is a model that has a 200k token context window. Okay, the new ones have a mill, but they get way dumber when you 
+use them that way. The token cost isn't even the only issue. The most common failures are wrong tool selection and 
+incorrect parameters, especially when tools have similar names, like notification send user versus 
+notification send channel. Yeah, I mean, I've even seen dumb things like models 
+not switching to the right directory because they hallucinated the word work tree into something else. I think work t 
+happened in one of my runs where it couldn't switch to the right directory because it misremembered the name of the directory. If you give it enough 
+similarly named [ __ ] it all falls apart really fast and eventually the model will just give up and do stupid [ __ ] 
+Like in my video about GBT 5.1 when I was trying to use it with their harness 
+with codecs, it would regularly edit files by writing a reax and executing it in Pearl via bash and not using the edit 
+file tool at all. What? Yeah. So here's their solution. Instead of loading all 
+tool definitions up front, the tool search tool will discover tools on demand. Bod only sees the tools that it 
+actually needs for the current task. So traditionally, it would bloat a ton of your context of all these tools, but with the tool search setup, it will only 
+include the right tools that it discovered for this. This example has an 85% reduction in token usage while 
+maintaining access to your full tool library. Internal testing showed significant accuracy improvements on MCP evaluations when working with large tool 
+libraries. Opus 4 improved from 49% to 74%. That's a 50% improvement. And Opus 
+4.5 went from 79.5 because again they're training the model to deal with tool bloat because it's gotten so bad. So 
+Opus 4 to 4.5 was 50% to 79.5%. 
+But they got Opus 4 to be roughly as good at Opus 4.5 at tool calling by just 
+deleting half the [ __ ] tools from the definition. And even 4.5 saw a massive improvement up to 88.1% once they had 
+the tool search tool set up. How does it actually work? You provide all your tool definitions to the API, but you mark 
+tools with defer loading true, which makes them discoverable on demand. Deferred tools aren't loaded into 
+Claude's context initially. Claude only sees the tool search tool itself, plus any tools with defer loading false. So 
+if you have tools you want it to always have access to, you can still do that. When Claude needs specific capabilities, it searches for relevant tools. The tool 
+search tool returns references to the matching tools which get expanded into full definitions within Claude's 
+context. So if Claude needs to interact with GitHub, it will search for GitHub and only the GitHub create pull request 
+and list issues will get loaded, not your 50 plus other tools from Slack, Jira, and Google Drive. Now Claude has 
+access to your full tool library while only paying for the token cost of the tools it actually needs. This doesn't break prompt caching, which is actually 
+a good call out. My suggestion earlier with the model in between would break prompt caching. When you give a pile of 
+tokens to a model, it has to effectively vectorize them to figure out where 
+things are most likely to go next because all this stuff is is autocomplete. When you have a bunch of tokens, that is your history. The most 
+likely next token changes when your history changes. That's how it all works. And has to compute that based on all of the things in the context. So 
+here is our initial context in this example. The system prompt, the tool 
+definitions and the user message. All of this gets sent to the LLM to execute. It 
+then comes back. We do the assistant message, the tool calling, actual calling of the tool, get our result, and 
+then we send all of this data back to the model again so it can do the next 
+message, the next step, the next turn, so to speak. Why do we have to recomputee all of this when we just 
+computed this part? Why do we have to recomputee the vectorzation or whatever term you want to use to describe the 
+like way we point to tokens after context is built? Why do we have to recalculate the whole thing when we 
+already calculated this part? This is where caching comes in. You can cache from the first token down to a point and 
+now you don't have to recmp compute that part when you add more things. This is really useful for traditional AI chats 
+because if I send a message and I get a response and then I ask something else, you don't have to recalculate everything 
+before, including the system prompt and all that, you just have to calculate from the new message onwards, which 
+makes it way cheaper for the model providers, which is why they give huge discounts when you hit the cache versus the traditional tokenization. OpenAI and 
+Gemini both do good caching automatically for you, which makes things significantly cheaper. Enthropic 
+makes you do it manually. But there's another problem here. Since it's calculating top down, if we want to 
+cache this part so that this part is cheaper, but once we get here, we also changed the system prompt all the way up 
+there. Any change up the chain nukes the cache. The cache has to be static from 
+entry down to the end of the cache entity. If you change something at the start, the whole cache dies. So if you're editing the system prompt 
+dynamically based on what tools are available, it all falls apart and it falls apart really fast. So how do we 
+solve that? How do we allow for the introduction of new tools without it breaking our cache? It seems like 
+anthropic solution here is that they're added to context after cloud searches from them in the message history as 
+context, not as part of the initial definition. The system prompt and the cordial definitions remain cachable. 
+sounds cool, but also potentially really easy to hijack because the system prompt is usually defined in the codebase for 
+this agent. And the rest of the history is done programmatically when users do things or the agent does things. I see a 
+lot of potential for prompt injections here where I can add a fake tool or a bad definition for a known tool into the 
+history and get it to call a tool in a malicious way. Here's an example implementation with no syntax 
+highlighting because Anthropic's really good at code includes a tool search tool. Type tool search tool reax. If you 
+ever want to add a fun drinking game to a video, this has got to be the one. Take a shot every time I say the word tool and I'll see you in the hospital. 
+I'll probably beat you there at this rate. So now we can mark a tool as defer loading. And now it won't be included 
+until it is searched for. And for MCP servers, we can defer loading entire servers while keeping specific high use 
+tools loaded. Look at that tab wrapping. Beautiful formatting here. Cloud 
+developer platform provides reax based and BM25based search tools out of the box. You can also implement custom 
+search tools. You can implement a custom search tool for your tool searching tool. 
+Soy.run just dropped some fun research in my chat. This is from last year. Manipulating LM tool calls through 
+adversarial injection. Oh boy, this is going to get even worse. I heard you like tools, so I put a tool in your tool 
+so we could listen to tool while we generate tools with tools. The word tool occurs 196 times on this page. So when 
+should we use the tool search tool? Like any architectural decision, enabling the tool search tool involves trade-offs. 
+Feature adds a search step before a tool invocation. So delivers the best return on investment when the context savings and accuracy improvements outweigh 
+additional latency. Yeah. The cool thing with the code execution solution is it reduces how many backend for us have to 
+occur for something to be executed. Here we're increasing it by one. We're adding one additional turn because we have to 
+look up the tools and then execute things, which means that the whole history goes back and forth. But if we 
+have an 8,000 token context window and then we have to rerun it with 8,500 
+tokens, that's still way less than the 50 to 100,000 token context window we would need otherwise. So use it when 
+your tool definitions are using more than 10k tokens, you're experiencing tool selection accuracy issues, building MCB powered systems with multiple 
+servers, or there's more than 10 tools available. It's less beneficial with a small tool library. Less than 10 tools 
+is small now. Oh god. All tools are used frequently in every session and tool 
+definitions are compact. These are when you wouldn't use it. Cool. And then we have programmatic tool calling. This is 
+what we discussed in the previous video where you can write code to execute the tools instead because LM are way better at writing code than doing arbitrary 
+matching of [ __ ] syntaxes to try and do this weird inference [ __ ] You 
+get the idea. Traditional tool calling creates two fundamental problems as workflows become more complex. First is 
+context pollution from intermediary results. You tell Claude to analyze a 10meg log file, it's going to put the 
+whole file in the context, even if it doesn't need it. But if you tell it to write code to parse that, it's only 
+going to take in a handful of lines, which is significantly better. When fetching customer data across multiple 
+tables, every record accumulates in the context regardless of relevance. Again, like if you want to find all of the 
+admin users on a service, the way that most of these MCPs would work is they would fetch all users, load the whole 
+list into memory into its history, and then hopefully needle in a haststack to find the right ones. Or it can execute 
+code and filter for the specific thing it wants, which in this case is users where type equals admin, and only return 
+those five users instead of the entire history. Turns out Kent Dods is already ahead of us here and has an article 
+about this from way earlier this year, like pre- July, and it's the same core premise, the 
+dynamic tool discovery. This is pre the programmatic execution thing, which I prefer. But yeah, the few people who are 
+actually all on an MCP recognize this problem forever ago. Anthropic, as usual, is slow. Speaking of which, back 
+to the programmatic tool calling. The other part that makes traditional tool call workflows more complex is the 
+inference overhead and manual synthesis. Each tool call requires full model inference past. After receiving results, 
+Claude must eyeball the data to extract relevant information, reason about how the pieces fit together, and decide what to do next. All through natural language 
+processing, a five tool workflow means five inference passes plus Claude parsing each result, comparing values 
+and and synthesizing conclusions. This is both slow and errorprone. Putting it lightly, remember tune token oriented 
+object notation. the thing everybody hated on and I defended. One of the coolest parts of this page is the per 
+model accuracy bench they do where they hand the models a giant pile of data and 
+ask it to find things. And it's cool to see that with like GBT nano tune is hitting a 90.9% which is the same as 
+JSON compact but when you switch to CSV or YAML and XML especially the 
+likelihood it gets things right goes down. But even in the best case which is tune on five nano it has a 90.9% 
+accuracy of finding the right data in a large data set. That means you have a roughly 10% failure rate. Do you know 
+what doesn't have a 10% failure rate? Filter array.filter 
+user user ID equals something is going to be significantly more reliable than 
+even the best cases in this test. Do you know what isn't good at this? Anthropic 
+models. The best case with Haiku 4.5, which is a much more expensive model and 
+a much newer model than 5 Nano, their best case is 59.8%. 40% lookup failure rate with large 
+amounts of data. If you're giving the model the select all version of the data 
+and then filter trying to find the right thing, it's not going to succeed because the model's kind of stupid. This is why 
+they went all in on things like GP in the clawed code solutions because they 
+can't trust the model given the context to identify the right thing. It's much better at writing commands to go find 
+the thing it's looking for. These models don't behave well with large amounts of context. So it makes a lot of sense that 
+Enthropic is finally trying to reduce said context. So what's their solution? Programmatic 
+tool calling enables Claude to orchestrate tools through code rather than through individual API round trips. 
+Instead of Claude requesting tools one at a time with each result being returned to the context, Claude writes code that will allow it to call multiple 
+tools, process the outputs, and control what information actually gets back to the context window. This isn't just 
+useful if you're chaining tools where you have one that's looking up data and one that's updating the data. This is useful just for reducing what makes it 
+back to Claude. If you were to ask Claude which users are admins and it has a lookup tool to find all users, it's 
+going to pull all the users in, get all of that data, and then do its best to needle in the haststack to find the 
+admins in it. But if you give it code execution, it can run the same request to get all users and then do a quick 
+filter before putting it back in context, saving you a ton of tokens, a ton of money, and removing that 10% 
+failure rate or in the haiku case 40% failure rate down to a zero. Think about that. It's kind of crazy when you think 
+about it that these models have best case 10% lookup failure rate, worst case 
+50%. And you can reduce that failure rate to zero by just writing some [ __ ] code 
+or letting the model write and execute the code. Models are so much smarter when you let them write code. And I'm happy that we're finally acknowledging 
+this as an industry. Cloud excels at writing code. And by letting it express orchestration logic in Python rather 
+than through natural language tool invocations, you get more reliable and precise control flow. Oh no, they stopped copying Cloudflare and are doing 
+it their own way. Now when they were copying Cloudflare, they also used TypeScript, which is really good for this. Now they're using Python, which is 
+not as good for this. There was some very fun research published earlier this year called AutoCode Benchmark by 
+Tencent. And one of the really cool pieces here is they compare how good different models are in different 
+environments. Ready for where this gets really fun? Let's look at Opus 4.1's performance. It got a 42.3 on Python, 
+42.9 on Vanilla.js, and a 47.7 on TypeScript. 
+So, if Anthropic really wants to make their models better at code and doing these things, there's a really easy 
+solution. Stop doing everything in [ __ ] Python. Anyways, we'll be talking a lot more about this chart and 
+all the fun things we can learn from it in the very near future. They have a when to use it section like processing 
+large data, running multi-step workflows with three or more dependent tool calls, filtering, sorting, and transforming tool results before Cloud sees them, 
+handling tasks where intermediate data shouldn't influence Cloud's reasoning, or running parallel operations across many items. It's less useful when doing 
+simple tool call invocations, working on tasks where Cloud should see and reason about all intermediate results, or running quick lookups of small 
+responses. Yep. And now we have the tool use examples actually showing the model how to use the tools instead of just 
+giving it a schema. A last piece to maybe unfuck MCP. That is other than a 
+good way to do off and a lazy execution environment that doesn't require you run a server for every single tool 
+connection. JSON schema excels at defining structure types, required fields, allowed enums, 
+etc. But it can't express usage patterns, when to include optional parameters, which combinations make sense, or what conventions your API 
+expects. So we have the support ticket API. It's a title, which is a string. It's a priority, which is an enum of 
+low, medium, high, or critical. Labels, which are an array of items, a reporter, which has all of these additional 
+pieces. Cool. The schema defines what's valid, but it leaves critical questions unanswered. Should due date use this 
+format, a more traditional text format or a UTC timestamp? What about the ID 
+conventions? Is the reporter a UYU ID or is it something with a user prefix or 
+just random numbers? When should claude populate nested structures like the reporter contact? How does escalation 
+level and escalation layers relate to priority? These ambiguities can lead to malformed tool calls and inconsistent 
+parameter usage. Better solution. Tool use examples let you provide sample tool calls directly in your tool definitions. 
+Instead of relying on schemas alone, you show clawed concrete used patterns. God, 
+JSON is actually becoming the new programming language. Wonderful. So we have the input schema. Then we have 
+input examples. These are examples with no context, just example. So this is 
+some input that matches the format. It doesn't even show what the shape of the result will look like. It's literally 
+just here is a valid tool call you could do here. I thought this would be useful. This is kind of sad. In their internal 
+testing, Tulie's examples improved accuracy from 72% to 90% on complex 
+parameter handling. Maybe we should just go back to writing code, guys. It's all starting to feel like a mistake. 
+This is good for complex nested structures where valid JSON doesn't imply correct usage, tools with many 
+optional params, APIs with domain specific conventions, and similar tools where examples clarify which one to use. 
+They have a best practices section here. Let's see how much of this pisses me off. Building agents to take real world 
+actions means handling scale, complexity, and precision all simultaneously. These three features work together to solve different 
+bottlenecks in tool use workflows. Here's how to combine them effectively. Layer features strategically. Not every 
+agent needs to use all three features for a given task. Start with your biggest bottleneck. If you have context 
+bloat from your tool definitions, use the search tool. If you have large intermediate results polluting context, 
+do programmatic tool calling. And if you have errors from parameters being malformed, use the tool use examples. 
+This focused approach lets you address the specific constraints limiting your agents performance rather than adding 
+complexity up front. Building with AI is quickly getting more complex than just building the thing with code. This is 
+kind of insane. There's like I will never take [ __ ] again for how complex the JS ecosystem is when we can't even 
+get an LLM to make an API request trivially. This is so insane. We're just 
+stapling on more and more layers of band-aids and tape in hopes that the result is something that functions. 
+Layer additional features as needed. They're complimentary. Okay. How the [ __ ] is programmatic tool calling 
+complimementary to tool use examples which are only in the original JSON 
+format? These two aren't complimentary. They're contradictory. And how does the search tool and programmatic tool 
+calling complement each other either? This one is reading your codebase to find type definitions to write code to 
+use the tools properly. This one is allowing for the LLM to find the natural 
+language way of executing the tool instead. I can see the tool search in tool use examples being complimentary, 
+but programmatic tool calling is an alternative to those. And now to challenge engineers even more. As we all 
+know, engineers are really good at naming things. Do you know what they're even better at? Concise copy. Engineers 
+are so good at writing. I don't know why they're writing code. They could just be writing pros. They're so elegant and 
+clever and smart. Is something I would say if I was really dumb. Engineers are 
+so bad at writing that there are whole fields dedicated to the idea of people who kind of know code and kind of know 
+people well enough to make that their career instead. You can make more money being four out of 10 at code and four out of 10 at socializing than you can 
+being 10 out of 10 at code because that inherently implies that you're two out of 10 at socializing at best. So, let's 
+have these engineers write definitions that are concise and descriptive enough for LLMs. I'm sure that will go great. 
+I'm sure all these engineers are going to write really good definitions for their tools. Obviously, I'm going to go 
+insane. What's even better is all these developers are going to tab complete the 
+description. they're gonna let an LLM write it for them and it's going to make everything worse, not better. It's gonna 
+be great. This is an actual reasonable call out because it doesn't know what tools it will or won't have access to. 
+Like if it searches three different things that it thinks might exist and they don't, it's screwed. So, it's important to add a system prompt 
+guidance so Claude knows what's available. Do you know how many layers deep we are now? I just I I need to 
+diagram this. I'm going to go mad. So, we have our data that we want the LM to 
+have access to. So we have this data needs to access it. So what do we do? We 
+put an API in front, have it make a curl request, but we're not doing that. We're doing MCP. So we access this data 
+through an MCP, but the MCP is a definition. We need a server. So the data is now exposed via an MCP server. 
+And we have the MCP definition. The MCP definition is that JSON schema that 
+describes what formats it takes. We can now add the examples and stuff there, 
+but I would say those are like alongside here because they exist in that same layer. But now it doesn't even matter 
+because we're not accessing it through that layer. We're searching for the tool. And then it turns out this is a 
+multi-step thing. So we're going to do programmatic execution. So we have a 
+sandbox VM environment and then Python 
+code. We have reinvented operating systems and hierarchies here. Are you 
+kidding? This is all of the layers we have to go through. How did we get here? Why are we here now? I'm going to go 
+mad. And we thought rag was a mistake. It's going to keep getting worse. We just keep adding layers whenever things 
+don't work quite how we want them to. Oh, I forgot. We have to add this to the system prompt because we took the tool 
+definition out of the context. So, now we need to have a system prompt hinting 
+about the tools. Here are our layers. Once again, how do we get here? I will 
+never again take [ __ ] that we work in a language that becomes another 
+virtualized language like TypeScript compiles to JavaScript which runs on V8 which is written in C++. 
+There are fewer layers in that than there are in a basic tool call. Now, 
+oh, this is hilarious. For programmatic tool calling, since there is no return 
+format standard as part of MCP, as far as I understand, MCP definitions don't tell you what the output looks like. 
+When you're doing programmatic tool calling, you have to go write that return statement yourself. You have to tell the model what will actually be 
+returned by the MCB. This is fine in Typescript because type definitions are easy to write. But in Python and JS, 
+which are the languages it seems like they're recommending for this, it won't know. So you have to write that for it. 
+There is an optional output schema as part of MCP, but I don't see anyone 
+using it because with an LLM, who cares what the format of the output is? It's just getting shoved into context. Anyways, yeah, 
+going to go insane. One of their slated sources is LLMVM. 
+It's a CLI based productivity tool that uses large language models and local Python tools and helpers to reason about 
+and execute your tasks. We are literally adding layer upon [ __ ] layer now. 
+God, AI code king just showed up in chat. Most of these blogs are only being written due to MCP's bloated tool calls. 
+Enthropic made a new issue and is fixing the issue now. ACP is a way better protocol than MCP. Enthropic should learn something from Zed and how to wait 
+protocols. Honestly, Anthropic should just acquire Zed. I think that's one of the best possible alignments in the 
+industry. They can help with so much. I really like the Zed team and how they operate. A bunch of the people who work 
+on Zebed hang out here. I've had nothing but incredible interaction with them. Even though I don't even have the editor installed on this computer, the Zed 
+team's awesome. They understand developers and good software and developer experiences so deeply. They 
+fill all of the holes that exist in like the developer brains of Anthropic. Like, 
+not to keep harping on this point, but uh Zed would never have done this [ __ ] They never would have let this 
+fly. So, now we're at the end of the article. 
+That means we're done, right? Right. Introducing 
+agent skills. Claude can now use skills to improve how 
+it performs specific tasks. 
+I'm going to end this one before I go insane. Thank you guys as always. Hopefully you find something useful 
+here. And if not, I'm sorry. Let me know what you think. And until next time, peace nerds.

@@ -11,8 +11,9 @@ const plansRouter = require('./routes/plans.js');
 const thoughtsRouter = require('./routes/thoughts.js');
 const contextRouter = require('./routes/context.js');
 const searchRouter = require('./routes/search.js');
+const toolsRouter = require('./routes/tools.js');
 
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler } = require('./middleware/errorHandler');
 
 // Global app setup
 const globalApp = express();
@@ -26,6 +27,7 @@ globalApp.use('/plans', plansRouter);
 globalApp.use('/thoughts', thoughtsRouter);
 globalApp.use('/context', contextRouter);
 globalApp.use('/search', searchRouter);
+globalApp.use('/tools', toolsRouter);
 
 // Serve tpc.db as binary
 globalApp.get('/tpc.db', (req, res) => {
@@ -75,6 +77,7 @@ async function createApp({ skipMigration = false } = {}) {
   localApp.use('/thoughts', thoughtsRouter);
   localApp.use('/context', contextRouter);
   localApp.use('/search', searchRouter);
+  localApp.use('/tools', toolsRouter);
   
   // 404 catch-all
   localApp.use((req, res, next) => {
