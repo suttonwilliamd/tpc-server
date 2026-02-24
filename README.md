@@ -1,4 +1,5 @@
 # TPC Server
+[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/227f8599-fa56-4738-bb33-91e8c015d685)
 
 A Node.js/Express API for AI-human collaboration, starting with JSON file storage for thoughts and plans.
 
