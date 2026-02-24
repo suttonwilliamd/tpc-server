@@ -17,15 +17,13 @@ Run `npx playwright test` for E2E UI tests.
 
 ### Project Structure
 - `server.js`: Main Express server with modular structure (db/, routes/, middleware/).
+- `mcp-server.js`: MCP server for AI clients (stdio transport). Run with `npm run mcp`.
 - `data/tpc.db`: SQLite database for persistent storage of thoughts and plans.
-- `thoughts.test.js` and `plans.test.js`: Core unit tests using Supertest for API endpoints.
-- `v1.0.test.js` through `v2.7.test.js`: Version-specific unit tests covering endpoints, validation, persistence, schema migrations, and regressions.
-- `e2e/v2.0.test.js` through `e2e/v2.7.test.js`: Playwright E2E tests for UI interactions, including search, tagging, and dynamic rendering.
-- `package.json`: Dependencies and scripts (includes `sqlite3` for DB, `jest` for unit testing, `playwright` for E2E, `marked` for Markdown rendering).
-- `public/index.html`, `public/index.js`, `public/style.css`: Static single-page UI for viewing, searching, and editing plans/thoughts with AI collaboration focus.
-- `routes/search.js`: Dedicated route for full-text search across plans and thoughts.
+- `tests/`: Test files (Jest unit tests, MCP tests).
+- `public/`: Static single-page UI.
 
 ### Usage Examples
+#### REST API
 - Retrieve all thoughts: `curl http://localhost:3000/thoughts`
 - Retrieve all plans: `curl http://localhost:3000/plans`
 - Create a thought: `curl -X POST http://localhost:3000/thoughts -H "Content-Type: application/json" -d '{"content": "My thought"}'`
@@ -34,11 +32,16 @@ Run `npx playwright test` for E2E UI tests.
 - Search across plans/thoughts: `curl "http://localhost:3000/search?q=AI&type=plans&tags=urgent&limit=5"`
 - Add tags to a plan: `curl -X PATCH http://localhost:3000/plans/1/tags -H "Content-Type: application/json" -d '{"tag": "ai"}'` (appends) or `{"tags": ["ai", "urgent"]}` (replaces)
 - Filter plans by tags: `curl "http://localhost:3000/plans?tags=ai,urgent"`
-- View UI: Visit http://localhost:3000/index.html after starting the server. Use the search input for queries, edit tags in detail views, and filter lists by tags.
+- View UI: Visit http://localhost:3000/index.html after starting the server.
 
-When editing plans, use Markdown syntax in descriptions for formatting (e.g., **bold** text). Search and tag functionality enhances organization for AI-human collaboration workflows.
+#### MCP Server
+- Start MCP server: `npm run mcp`
+- Connects via stdio — configure your MCP client to use this
+- Available tools: list_plans, get_plan, create_plan, update_plan, list_thoughts, create_thought, search_thoughts, get_context
+- Available resources: tpc://plans, tpc://thoughts, tpc://context
 
 ## Features
+- **MCP Server**: Full MCP protocol implementation for AI clients. Run with `npm run mcp` (stdio transport).
 - Modular server architecture: Organized into db/, routes/, and middleware/ for maintainable API development.
 - SQLite persistence: Single `data/tpc.db` for thoughts and plans with idempotent schema migrations.
 - Comprehensive testing: Jest for unit tests (endpoints, validation, integrations) and Playwright for E2E UI tests (rendering, interactions).
