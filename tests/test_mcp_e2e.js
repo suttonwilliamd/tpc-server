@@ -4,9 +4,10 @@ const request = require('supertest');
 describe('MCP End-to-End Workflow Tests', () => {
   let app;
   let testApp;
+  let appSetup;
 
   beforeAll(async () => {
-    const appSetup = await createApp({ skipMigration: true });
+    appSetup = await createApp({ skipMigration: true });
     app = appSetup.app;
     testApp = request(app);
   });
@@ -491,7 +492,7 @@ if (require.main === module) {
   (async () => {
     console.log('Running MCP End-to-End Workflow Tests...');
 
-    const appSetup = await createApp({ skipMigration: true });
+    appSetup = await createApp({ skipMigration: true });
     const app = appSetup.app;
     const testApp = request(app);
 
