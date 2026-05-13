@@ -12,8 +12,12 @@ A Node.js/Express API for AI-human collaboration, starting with JSON file storag
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 ### Testing
-Run `npm test` to execute Jest tests verifying the endpoint functionality.
-Run `npx playwright test` for E2E UI tests.
+Run `npm test` (or `npm run test:unit`) to execute Jest API/integration tests.
+Run `npm run test:e2e` for Playwright UI tests.
+
+### Production Security
+`/tpc.db` download is disabled in production by default.
+To explicitly allow it, set `EXPOSE_TPC_DB=true`.
 
 ### Project Structure
 - `server.js`: Main Express server with modular structure (db/, routes/, middleware/).

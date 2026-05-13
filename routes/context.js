@@ -68,9 +68,13 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// GET /tpc.db
+// GET /tpc.db (disabled in production unless explicitly enabled)
 router.get('/tpc.db', (req, res, next) => {
   try {
+    const allowDbDownload = process.env.NODE_ENV !== 'production' || process.env.EXPOSE_TPC_DB === 'true';
+    if (!allowDbDownload) {
+      return res.status(403).json({ error: 'Database download is disabled' });
+    }
     const dbPath = path.join(__dirname, '..', 'data', 'tpc.db');
     res.sendFile(dbPath);
   } catch (err) {

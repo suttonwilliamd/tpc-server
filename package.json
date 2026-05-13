@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "cross-env NODE_ENV=test jest --runInBand",
+    "test": "npm run test:unit",
+    "test:unit": "cross-env NODE_ENV=test jest --runInBand",
+    "test:e2e": "playwright test",
     "mcp": "node mcp-server.js",
     "start": "node server.js"
   },
@@ -25,8 +27,7 @@
     "marked": "^16.3.0",
     "mcp": "^1.4.2",
     "sqlite3": "^5.1.7",
-    "uuid": "^13.0.0",
-    "vm2": "^3.10.0"
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",

@@ -29,8 +29,12 @@ globalApp.use('/context', contextRouter);
 globalApp.use('/search', searchRouter);
 globalApp.use('/tools', toolsRouter);
 
-// Serve tpc.db as binary
+// Serve tpc.db as binary (disabled in production unless explicitly enabled)
 globalApp.get('/tpc.db', (req, res) => {
+  const allowDbDownload = process.env.NODE_ENV !== 'production' || process.env.EXPOSE_TPC_DB === 'true';
+  if (!allowDbDownload) {
+    return res.status(403).json({ error: 'Database download is disabled' });
+  }
   res.type('application/octet-stream');
   res.sendFile(path.join(__dirname, 'data', 'tpc.db'));
 });
