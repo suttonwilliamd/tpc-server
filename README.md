@@ -19,6 +19,17 @@ Run `npm run test:e2e` for Playwright UI tests.
 `/tpc.db` download is disabled in production by default.
 To explicitly allow it, set `EXPOSE_TPC_DB=true`.
 
+### Operational Endpoints
+- `GET /health` returns basic liveness info.
+- `GET /ready` returns readiness info and DB path.
+
+### Data Contract (REST + MCP)
+- **IDs**: integer autoincrement IDs from SQLite for plans/thoughts.
+- **Timestamps**:
+  - `thoughts.timestamp`, `plans.timestamp` = ISO8601 string.
+  - `plans.created_at`, `plans.last_modified_at` = epoch milliseconds.
+- **Tags**: JSON-encoded string arrays in DB columns.
+
 ### Project Structure
 - `server.js`: Main Express server with modular structure (db/, routes/, middleware/).
 - `mcp-server.js`: MCP server for AI clients (stdio transport). Run with `npm run mcp`.

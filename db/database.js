@@ -1,9 +1,12 @@
 const fs = require('fs').promises;
+const fssync = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 let globalDb = null;
 const GLOBAL_DB_PATH = path.join(__dirname, '..', 'data', 'tpc.db');
+const BACKUP_DIR = path.join(__dirname, '..', 'data', 'backups');
+const MAX_BACKUPS = 7;
 
 // Low-level query helpers
 async function _getAll(db, sql, params = []) {
@@ -148,6 +151,12 @@ async function performMigration(db, skipMigration = false) {
         last_modified_at INTEGER,
         tags TEXT DEFAULT '[]'
       )`, (err) => err ? rej(err) : res());
+    }),
+    new Promise((res, rej) => {
+      db.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      )`, (err) => err ? rej(err) : res());
     })
   ]);
 
@@ -203,6 +212,12 @@ async function performMigration(db, skipMigration = false) {
   // Add indexes on tags
   await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_plans_tags ON plans(tags)');
   await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts(tags)');
+
+  // Mark baseline migration if missing
+  await runSql(
+    db,
+    "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, datetime('now'))"
+  );
 
   if (skipMigration) {
     console.log(`skipMigration=${skipMigration}`);
@@ -310,7 +325,33 @@ function getDB() {
   return globalDb;
 }
 
+async function rotateBackupIfNeeded() {
+  try {
+    const files = await fs.readdir(BACKUP_DIR);
+    const dbBackups = files.filter((f) => f.endsWith('.db')).sort();
+    while (dbBackups.length >= MAX_BACKUPS) {
+      const oldest = dbBackups.shift();
+      await fs.unlink(path.join(BACKUP_DIR, oldest));
+    }
+  } catch {
+    // ignore if backup dir does not exist yet
+  }
+}
+
+async function backupGlobalDB() {
+  if (process.env.NODE_ENV === 'test') return;
+  if (!fssync.existsSync(GLOBAL_DB_PATH)) return;
+
+  await fs.mkdir(BACKUP_DIR, { recursive: true });
+  await rotateBackupIfNeeded();
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const target = path.join(BACKUP_DIR, `tpc-${stamp}.db`);
+  await fs.copyFile(GLOBAL_DB_PATH, target);
+}
+
 async function initGlobalDB(skipMigration = false) {
+  await backupGlobalDB();
   globalDb = await initDB(GLOBAL_DB_PATH, skipMigration);
 }
 

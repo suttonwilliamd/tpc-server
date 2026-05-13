@@ -20,6 +20,16 @@ const globalApp = express();
 
 // Middleware for global app
 globalApp.use(express.json());
+globalApp.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (process.env.NODE_ENV !== 'test') {
+      const ms = Date.now() - start;
+      console.log(JSON.stringify({ level: 'info', route: req.originalUrl, method: req.method, status: res.statusCode, latency_ms: ms }));
+    }
+  });
+  next();
+});
 globalApp.use(express.static(path.join(__dirname, 'public')));
 
 // Mount routers
@@ -28,6 +38,20 @@ globalApp.use('/thoughts', thoughtsRouter);
 globalApp.use('/context', contextRouter);
 globalApp.use('/search', searchRouter);
 globalApp.use('/tools', toolsRouter);
+
+// Health/readiness endpoints
+globalApp.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'tpc-server', timestamp: new Date().toISOString() });
+});
+
+globalApp.get('/ready', (req, res) => {
+  try {
+    const dbPath = path.join(__dirname, 'data', 'tpc.db');
+    res.json({ ready: true, db: dbPath });
+  } catch (err) {
+    res.status(503).json({ ready: false, error: err.message });
+  }
+});
 
 // Serve tpc.db as binary (disabled in production unless explicitly enabled)
 globalApp.get('/tpc.db', (req, res) => {
