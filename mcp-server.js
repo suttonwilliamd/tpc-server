@@ -21,6 +21,25 @@ class TPCServer {
     this.setupHandlers();
   }
 
+  normalizeThoughtRow(row) {
+    if (!row) return row;
+    let tags = [];
+    try {
+      const parsed = JSON.parse(row.tags || '[]');
+      tags = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      tags = [];
+    }
+    const [type = 'observation'] = tags;
+    const normalizedPlanId = row.plan_id == null ? null : String(Number.parseInt(String(row.plan_id), 10));
+    return {
+      ...row,
+      tags,
+      type,
+      plan_id: normalizedPlanId,
+    };
+  }
+
   setupHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -29,8 +48,8 @@ class TPCServer {
         { name: 'create_plan', description: 'Create a new plan', inputSchema: { type: 'object', properties: { title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', default: 'proposed' }, tags: { type: 'array', items: { type: 'string' } } }, required: ['title', 'description'] } },
         { name: 'update_plan', description: 'Update an existing plan', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, changelog_entry: { type: 'string' }, thought: { type: 'string' } }, required: ['id'] } },
         { name: 'list_thoughts', description: 'List recent thoughts', inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 10 } } } },
-        { name: 'create_thought', description: 'Create a new thought', inputSchema: { type: 'object', properties: { content: { type: 'string' }, type: { type: 'string', default: 'observation' } }, required: ['content'] } },
-        { name: 'search_thoughts', description: 'Search thoughts by query', inputSchema: { type: 'object', properties: { q: { type: 'string' }, limit: { type: 'number', default: 10 } }, required: ['q'] } },
+        { name: 'create_thought', description: 'Create a new thought', inputSchema: { type: 'object', properties: { content: { type: 'string' }, type: { type: 'string', default: 'observation' }, plan_id: { type: 'string', description: 'Optional plan ID to associate this thought with' }, tags: { type: 'array', items: { type: 'string' }, description: 'Optional extra tags' } }, required: ['content'] } },
+        { name: 'search_thoughts', description: 'Search thoughts by query', inputSchema: { type: 'object', properties: { q: { type: 'string' }, query: { type: 'string' }, limit: { type: 'number', default: 10 } }, required: [] } },
         { name: 'get_context', description: 'Get context: incomplete plans + recent thoughts', inputSchema: { type: 'object', properties: {} } },
       ],
     }));
@@ -51,13 +70,13 @@ class TPCServer {
           return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(plans, null, 2) }] };
         }
         if (uri === 'tpc://thoughts') {
-          const thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 20').all();
+          const thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 20').all().map((t) => this.normalizeThoughtRow(t));
           return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(thoughts, null, 2) }] };
         }
         if (uri === 'tpc://context') {
           const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
-          const thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all();
-          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ plans, thoughts }, null, 2) }] };
+          const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
+          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ plans, recent_thoughts, thoughts: recent_thoughts, counts: { plans: plans.length, recent_thoughts: recent_thoughts.length } }, null, 2) }] };
         }
         throw new Error(`Unknown resource: ${uri}`);
       } catch (err) {
@@ -138,25 +157,41 @@ class TPCServer {
           }
           case 'list_thoughts': {
             const limit = Number(args.limit) || 10;
-            const thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT ?').all(limit);
+            let thoughts;
+            if (args.plan_id) {
+              thoughts = this.db.prepare('SELECT * FROM thoughts WHERE plan_id = ? ORDER BY timestamp DESC LIMIT ?').all(Number(args.plan_id), limit);
+            } else {
+              thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT ?').all(limit);
+            }
+            thoughts = thoughts.map((t) => this.normalizeThoughtRow(t));
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
           }
           case 'create_thought': {
             const nowIso = new Date().toISOString();
+            const planId = args.plan_id == null || args.plan_id === '' ? null : Number(args.plan_id);
+            const tags = [];
+            if (args.type) tags.push(String(args.type));
+            if (Array.isArray(args.tags)) {
+              for (const tag of args.tags) {
+                if (typeof tag === 'string' && !tags.includes(tag)) tags.push(tag);
+              }
+            }
             const stmt = this.db.prepare('INSERT INTO thoughts (timestamp, content, plan_id, tags) VALUES (?, ?, ?, ?)');
-            const result = stmt.run(nowIso, args.content, null, JSON.stringify(args.type ? [args.type] : []));
-            const thought = this.db.prepare('SELECT * FROM thoughts WHERE id = ?').get(result.lastInsertRowid);
+            const result = stmt.run(nowIso, args.content, planId, JSON.stringify(tags));
+            const thought = this.normalizeThoughtRow(this.db.prepare('SELECT * FROM thoughts WHERE id = ?').get(result.lastInsertRowid));
             return { content: [{ type: 'text', text: JSON.stringify(thought, null, 2) }] };
           }
           case 'search_thoughts': {
+            const q = args.q || args.query;
+            if (!q) return { content: [{ type: 'text', text: 'Error: q or query is required' }], isError: true };
             const limit = Number(args.limit) || 10;
-            const thoughts = this.db.prepare('SELECT * FROM thoughts WHERE content LIKE ? ORDER BY timestamp DESC LIMIT ?').all(`%${args.q}%`, limit);
+            const thoughts = this.db.prepare('SELECT * FROM thoughts WHERE content LIKE ? ORDER BY timestamp DESC LIMIT ?').all(`%${q}%`, limit).map((t) => this.normalizeThoughtRow(t));
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
           }
           case 'get_context': {
             const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
-            const thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all();
-            return { content: [{ type: 'text', text: JSON.stringify({ plans, thoughts }, null, 2) }] };
+            const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
+            return { content: [{ type: 'text', text: JSON.stringify({ plans, recent_thoughts, thoughts: recent_thoughts, counts: { plans: plans.length, recent_thoughts: recent_thoughts.length } }, null, 2) }] };
           }
           default:
             throw new Error(`Unknown tool: ${name}`);

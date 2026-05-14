@@ -62,4 +62,55 @@ describe('MCP contract tests', () => {
     const found = thoughts.some((t) => t.id === created.id && t.content === marker);
     expect(found).toBe(true);
   });
+
+  it('persists thought plan_id/tags and returns normalized context shape', async () => {
+    const planTitle = `contract-plan-${Date.now()}`;
+    const planRes = await client.callTool({
+      name: 'create_plan',
+      arguments: {
+        title: planTitle,
+        description: 'contract plan for thought linkage',
+      },
+    });
+
+    expect(planRes.isError).not.toBe(true);
+    const plan = JSON.parse(planRes.content[0].text);
+
+    const thoughtRes = await client.callTool({
+      name: 'create_thought',
+      arguments: {
+        content: `linked-thought-${Date.now()}`,
+        plan_id: String(plan.id),
+        type: 'decision',
+        tags: ['mcp-contract'],
+      },
+    });
+
+    expect(thoughtRes.isError).not.toBe(true);
+    const thought = JSON.parse(thoughtRes.content[0].text);
+    expect(thought.plan_id).toBe(String(plan.id));
+    expect(Array.isArray(thought.tags)).toBe(true);
+    expect(thought.tags).toEqual(expect.arrayContaining(['decision', 'mcp-contract']));
+    expect(thought.type).toBe('decision');
+
+    const searchRes = await client.callTool({
+      name: 'search_thoughts',
+      arguments: { query: 'linked-thought', limit: 10 },
+    });
+    expect(searchRes.isError).not.toBe(true);
+    const matched = JSON.parse(searchRes.content[0].text);
+    expect(matched.some((t) => t.id === thought.id)).toBe(true);
+
+    const contextRes = await client.callTool({
+      name: 'get_context',
+      arguments: {},
+    });
+    expect(contextRes.isError).not.toBe(true);
+    const ctx = JSON.parse(contextRes.content[0].text);
+    expect(Array.isArray(ctx.plans)).toBe(true);
+    expect(Array.isArray(ctx.recent_thoughts)).toBe(true);
+    expect(ctx.counts).toBeDefined();
+    expect(typeof ctx.counts.plans).toBe('number');
+    expect(typeof ctx.counts.recent_thoughts).toBe('number');
+  });
 });
