@@ -113,4 +113,41 @@ describe('MCP contract tests', () => {
     expect(typeof ctx.counts.plans).toBe('number');
     expect(typeof ctx.counts.recent_thoughts).toBe('number');
   });
+
+  it('rejects malformed payloads with explicit validation errors', async () => {
+    const badLimit = await client.callTool({
+      name: 'list_thoughts',
+      arguments: { limit: 'a lot' },
+    });
+    expect(badLimit.isError).toBe(true);
+    expect(badLimit.content[0].text).toContain('limit must be a positive integer');
+
+    const badThoughtType = await client.callTool({
+      name: 'create_thought',
+      arguments: { content: 'x', type: 42 },
+    });
+    expect(badThoughtType.isError).toBe(true);
+    expect(badThoughtType.content[0].text).toContain('type must be a string');
+
+    const tooLongThought = await client.callTool({
+      name: 'create_thought',
+      arguments: { content: 'x'.repeat(5001) },
+    });
+    expect(tooLongThought.isError).toBe(true);
+    expect(tooLongThought.content[0].text).toContain('content exceeds max length');
+
+    const badSearch = await client.callTool({
+      name: 'search_thoughts',
+      arguments: { query: 123 },
+    });
+    expect(badSearch.isError).toBe(true);
+    expect(badSearch.content[0].text).toContain('query must be a string');
+
+    const badPlan = await client.callTool({
+      name: 'create_plan',
+      arguments: { title: 'ok', description: 'd'.repeat(20001) },
+    });
+    expect(badPlan.isError).toBe(true);
+    expect(badPlan.content[0].text).toContain('description exceeds max length');
+  });
 });

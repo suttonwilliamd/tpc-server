@@ -21,6 +21,41 @@ class TPCServer {
     this.setupHandlers();
   }
 
+  validationError(message) {
+    const err = new Error(message);
+    err.code = 'VALIDATION_ERROR';
+    return err;
+  }
+
+  assertString(value, field, { required = false, maxLength } = {}) {
+    if (value == null || value === '') {
+      if (required) throw this.validationError(`${field} is required`);
+      return;
+    }
+    if (typeof value !== 'string') throw this.validationError(`${field} must be a string`);
+    if (maxLength && value.length > maxLength) throw this.validationError(`${field} exceeds max length (${maxLength})`);
+  }
+
+  assertPositiveInt(value, field, { required = false, max = 1000 } = {}) {
+    if (value == null || value === '') {
+      if (required) throw this.validationError(`${field} is required`);
+      return;
+    }
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) throw this.validationError(`${field} must be a positive integer`);
+    if (n > max) throw this.validationError(`${field} exceeds max allowed value (${max})`);
+  }
+
+  assertStringArray(value, field, { maxItems = 32, maxItemLength = 64 } = {}) {
+    if (value == null) return;
+    if (!Array.isArray(value)) throw this.validationError(`${field} must be an array of strings`);
+    if (value.length > maxItems) throw this.validationError(`${field} exceeds max items (${maxItems})`);
+    for (const item of value) {
+      if (typeof item !== 'string') throw this.validationError(`${field} must contain only strings`);
+      if (item.length > maxItemLength) throw this.validationError(`${field} item exceeds max length (${maxItemLength})`);
+    }
+  }
+
   normalizeThoughtRow(row) {
     if (!row) return row;
     let tags = [];
@@ -100,11 +135,16 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(plans, null, 2) }] };
           }
           case 'get_plan': {
+            this.assertPositiveInt(args.id, 'id', { required: true, max: 2147483647 });
             const plan = this.db.prepare('SELECT * FROM plans WHERE id = ?').get(args.id);
             if (!plan) return { content: [{ type: 'text', text: `Plan not found: ${args.id}` }] };
             return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] };
           }
           case 'create_plan': {
+            this.assertString(args.title, 'title', { required: true, maxLength: 200 });
+            this.assertString(args.description, 'description', { required: true, maxLength: 20000 });
+            this.assertString(args.status, 'status', { maxLength: 64 });
+            this.assertStringArray(args.tags, 'tags', { maxItems: 64, maxItemLength: 64 });
             const nowIso = new Date().toISOString();
             const nowMs = Date.now();
             const stmt = this.db.prepare(`
@@ -127,6 +167,10 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] };
           }
           case 'update_plan': {
+            this.assertPositiveInt(args.id, 'id', { required: true, max: 2147483647 });
+            this.assertString(args.status, 'status', { maxLength: 64 });
+            this.assertString(args.changelog_entry, 'changelog_entry', { maxLength: 2000 });
+            this.assertString(args.thought, 'thought', { maxLength: 2000 });
             const existing = this.db.prepare('SELECT * FROM plans WHERE id = ?').get(args.id);
             if (!existing) return { content: [{ type: 'text', text: `Plan not found: ${args.id}` }] };
 
@@ -156,6 +200,8 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] };
           }
           case 'list_thoughts': {
+            this.assertPositiveInt(args.limit, 'limit', { max: 200 });
+            this.assertPositiveInt(args.plan_id, 'plan_id', { max: 2147483647 });
             const limit = Number(args.limit) || 10;
             let thoughts;
             if (args.plan_id) {
@@ -167,6 +213,10 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
           }
           case 'create_thought': {
+            this.assertString(args.content, 'content', { required: true, maxLength: 5000 });
+            this.assertString(args.type, 'type', { maxLength: 64 });
+            this.assertPositiveInt(args.plan_id, 'plan_id', { max: 2147483647 });
+            this.assertStringArray(args.tags, 'tags', { maxItems: 64, maxItemLength: 64 });
             const nowIso = new Date().toISOString();
             const planId = args.plan_id == null || args.plan_id === '' ? null : Number(args.plan_id);
             const tags = [];
@@ -182,6 +232,9 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(thought, null, 2) }] };
           }
           case 'search_thoughts': {
+            this.assertString(args.q, 'q', { maxLength: 2000 });
+            this.assertString(args.query, 'query', { maxLength: 2000 });
+            this.assertPositiveInt(args.limit, 'limit', { max: 200 });
             const q = args.q || args.query;
             if (!q) return { content: [{ type: 'text', text: 'Error: q or query is required' }], isError: true };
             const limit = Number(args.limit) || 10;
