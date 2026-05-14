@@ -7,6 +7,7 @@
     "test:unit": "cross-env NODE_ENV=test jest --runInBand",
     "test:e2e": "playwright test",
     "mcp": "node mcp-server.js",
+    "smoke:mcp": "node scripts/mcp-smoke.js",
     "start": "node server.js"
   },
   "repository": {

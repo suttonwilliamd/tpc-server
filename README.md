@@ -14,6 +14,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 ### Testing
 Run `npm test` (or `npm run test:unit`) to execute Jest API/integration tests.
 Run `npm run test:e2e` for Playwright UI tests.
+Run `npm run smoke:mcp` for deterministic MCP plan/thought lifecycle smoke validation.
 
 ### Production Security
 `/tpc.db` download is disabled in production by default.
