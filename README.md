@@ -6,7 +6,7 @@ A Node.js/Express API for AI-human collaboration, starting with JSON file storag
 ### Setup and Usage
 1. Install dependencies: `npm install`
 2. Start the server: `node server.js`
-3. The server runs on `http://localhost:3000`
+3. The server runs on `http://localhost:3001`
 
 ## Changelog
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
@@ -40,15 +40,15 @@ To explicitly allow it, set `EXPOSE_TPC_DB=true`.
 
 ### Usage Examples
 #### REST API
-- Retrieve all thoughts: `curl http://localhost:3000/thoughts`
-- Retrieve all plans: `curl http://localhost:3000/plans`
-- Create a thought: `curl -X POST http://localhost:3000/thoughts -H "Content-Type: application/json" -d '{"content": "My thought"}'`
-- Create a plan: `curl -X POST http://localhost:3000/plans -H "Content-Type: application/json" -d '{"title": "My Plan", "description": "Plan details"}'`
-- Update plan status: `curl -X PATCH http://localhost:3000/plans/1 -H "Content-Type: application/json" -d '{"status": "in_progress"}'`
-- Search across plans/thoughts: `curl "http://localhost:3000/search?q=AI&type=plans&tags=urgent&limit=5"`
-- Add tags to a plan: `curl -X PATCH http://localhost:3000/plans/1/tags -H "Content-Type: application/json" -d '{"tag": "ai"}'` (appends) or `{"tags": ["ai", "urgent"]}` (replaces)
-- Filter plans by tags: `curl "http://localhost:3000/plans?tags=ai,urgent"`
-- View UI: Visit http://localhost:3000/index.html after starting the server.
+- Retrieve all thoughts: `curl http://localhost:3001/thoughts`
+- Retrieve all plans: `curl http://localhost:3001/plans`
+- Create a thought: `curl -X POST http://localhost:3001/thoughts -H "Content-Type: application/json" -d '{"content": "My thought"}'`
+- Create a plan: `curl -X POST http://localhost:3001/plans -H "Content-Type: application/json" -d '{"title": "My Plan", "description": "Plan details"}'`
+- Update plan status: `curl -X PATCH http://localhost:3001/plans/1 -H "Content-Type: application/json" -d '{"status": "in_progress"}'`
+- Search across plans/thoughts: `curl "http://localhost:3001/search?q=AI&type=plans&tags=urgent&limit=5"`
+- Add tags to a plan: `curl -X PATCH http://localhost:3001/plans/1/tags -H "Content-Type: application/json" -d '{"tag": "ai"}'` (appends) or `{"tags": ["ai", "urgent"]}` (replaces)
+- Filter plans by tags: `curl "http://localhost:3001/plans?tags=ai,urgent"`
+- View UI: Visit http://localhost:3001/index.html after starting the server.
 
 #### MCP Server
 - Start MCP server: `npm run mcp`
@@ -76,9 +76,9 @@ To explicitly allow it, set `EXPOSE_TPC_DB=true`.
 - UI: Global search input, tag editing in details, tag filtering dropdowns in lists.
 
 ### Usage
-- API search: `curl "http://localhost:3000/search?q=collaboration&type=plans&tags=ai"`
-- Tag a plan: `curl -X PATCH http://localhost:3000/plans/1/tags -H "Content-Type: application/json" -d '{"tags": ["ai", "urgent"]}'` (replace) or `{"tag": "new"}` (append).
-- Filter by tags: `curl "http://localhost:3000/plans?tags=ai,urgent"`
+- API search: `curl "http://localhost:3001/search?q=collaboration&type=plans&tags=ai"`
+- Tag a plan: `curl -X PATCH http://localhost:3001/plans/1/tags -H "Content-Type: application/json" -d '{"tags": ["ai", "urgent"]}'` (replace) or `{"tag": "new"}` (append).
+- Filter by tags: `curl "http://localhost:3001/plans?tags=ai,urgent"`
 - UI: Enter query in search box; click tags to edit/filter in plan/thought views.
 
 ### Notable Changes

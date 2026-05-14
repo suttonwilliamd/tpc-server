@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Import DB module
 const { initGlobalDB, cleanDB: globalCleanDB } = require('./db/database.js');
@@ -75,9 +75,10 @@ globalApp.use(errorHandler);
 // Initialize global DB and start server if main module
 if (require.main === module) {
   initGlobalDB().then(() => {
-    globalApp.listen(PORT, () => {
+    const server = globalApp.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
+    if (typeof server.ref === 'function') server.ref();
   }).catch(console.error);
 }
 
