@@ -32,6 +32,7 @@ describe('MCP contract tests', () => {
       'create_thought',
       'search_thoughts',
       'get_context',
+      'get_compaction_bundle',
     ];
 
     expected.forEach((name) => expect(names.has(name)).toBe(true));
@@ -109,9 +110,27 @@ describe('MCP contract tests', () => {
     const ctx = JSON.parse(contextRes.content[0].text);
     expect(Array.isArray(ctx.plans)).toBe(true);
     expect(Array.isArray(ctx.recent_thoughts)).toBe(true);
+    expect(Array.isArray(ctx.handoff_docs)).toBe(true);
+    expect(Array.isArray(ctx.compaction_anchors)).toBe(true);
     expect(ctx.counts).toBeDefined();
     expect(typeof ctx.counts.plans).toBe('number');
     expect(typeof ctx.counts.recent_thoughts).toBe('number');
+    expect(typeof ctx.counts.handoff_docs).toBe('number');
+    expect(typeof ctx.counts.compaction_anchors).toBe('number');
+
+    const bundleRes = await client.callTool({
+      name: 'get_compaction_bundle',
+      arguments: {},
+    });
+    expect(bundleRes.isError).not.toBe(true);
+    const bundle = JSON.parse(bundleRes.content[0].text);
+    expect(bundle.source).toBe('handoff-first');
+    expect(Array.isArray(bundle.handoff_docs)).toBe(true);
+    expect(Array.isArray(bundle.compaction_anchors)).toBe(true);
+    expect(Array.isArray(bundle.recent_thoughts)).toBe(true);
+    expect(Array.isArray(bundle.open_plan_ids)).toBe(true);
+    expect(bundle.counts).toBeDefined();
+    expect(typeof bundle.generated_at).toBe('string');
   });
 
   it('rejects malformed payloads with explicit validation errors', async () => {

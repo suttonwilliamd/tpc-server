@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs').promises;
 const BetterSqlite3 = require('better-sqlite3');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
@@ -19,6 +20,134 @@ class TPCServer {
       { capabilities: { tools: {}, resources: {} } }
     );
     this.setupHandlers();
+  }
+
+  async fileExists(targetPath) {
+    try {
+      await fs.access(targetPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  defaultHandoffRoots() {
+    return [
+      path.join(__dirname, 'handoff.md'),
+      path.join(__dirname, 'docs', 'handoff.md'),
+      path.join(__dirname, '..', 'hermes-workspace', 'memory', 'goals'),
+      path.join(__dirname, 'memory', 'goals'),
+    ];
+  }
+
+  async collectHandoffDocs() {
+    const maxDocs = Number.parseInt(process.env.TPC_HANDOFF_MAX_DOCS || '8', 10);
+    const maxBytes = Number.parseInt(process.env.TPC_HANDOFF_MAX_BYTES || '4000', 10);
+    const roots = this.defaultHandoffRoots();
+    const docs = [];
+
+    for (const root of roots) {
+      if (!(await this.fileExists(root))) continue;
+      const stat = await fs.stat(root);
+
+      if (stat.isFile() && /handoff\.md$/i.test(root)) {
+        const content = await fs.readFile(root, 'utf8');
+        docs.push({ path: root, content, mtimeMs: stat.mtimeMs });
+      }
+
+      if (!stat.isDirectory()) continue;
+      const entries = await fs.readdir(root, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (docs.length >= maxDocs * 2) break;
+        const direct = path.join(root, entry.name);
+
+        if (entry.isFile() && /handoff\.md$/i.test(entry.name)) {
+          const fileStat = await fs.stat(direct);
+          const content = await fs.readFile(direct, 'utf8');
+          docs.push({ path: direct, content, mtimeMs: fileStat.mtimeMs });
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          const nested = path.join(direct, 'handoff.md');
+          if (await this.fileExists(nested)) {
+            const fileStat = await fs.stat(nested);
+            const content = await fs.readFile(nested, 'utf8');
+            docs.push({ path: nested, content, mtimeMs: fileStat.mtimeMs });
+          }
+        }
+      }
+    }
+
+    const unique = new Map();
+    for (const d of docs) {
+      if (!unique.has(d.path) || unique.get(d.path).mtimeMs < d.mtimeMs) unique.set(d.path, d);
+    }
+
+    return [...unique.values()]
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, maxDocs)
+      .map((doc) => ({
+        path: doc.path,
+        modified_at: new Date(doc.mtimeMs).toISOString(),
+        excerpt: (doc.content || '').slice(0, maxBytes),
+      }));
+  }
+
+  extractCompactionAnchors(handoffDocs = []) {
+    const anchors = [];
+
+    for (const doc of handoffDocs) {
+      const lines = String(doc.excerpt || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        if (!/^([#*-]|\d+\.)\s+/.test(line)) continue;
+        const clean = line
+          .replace(/^#+\s*/, '')
+          .replace(/^[-*]\s+/, '')
+          .replace(/^\d+\.\s+/, '')
+          .trim();
+        if (!clean) continue;
+        anchors.push({ source: doc.path, text: clean });
+      }
+    }
+
+    const dedup = [];
+    const seen = new Set();
+    for (const anchor of anchors) {
+      const key = anchor.text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dedup.push(anchor);
+      if (dedup.length >= 30) break;
+    }
+
+    return dedup;
+  }
+
+  async buildContextPayload() {
+    const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
+    const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
+    const handoff_docs = await this.collectHandoffDocs();
+    const compaction_anchors = this.extractCompactionAnchors(handoff_docs);
+
+    return {
+      plans,
+      recent_thoughts,
+      thoughts: recent_thoughts,
+      handoff_docs,
+      compaction_anchors,
+      counts: {
+        plans: plans.length,
+        recent_thoughts: recent_thoughts.length,
+        handoff_docs: handoff_docs.length,
+        compaction_anchors: compaction_anchors.length,
+      },
+    };
   }
 
   validationError(message) {
@@ -86,6 +215,7 @@ class TPCServer {
         { name: 'create_thought', description: 'Create a new thought', inputSchema: { type: 'object', properties: { content: { type: 'string' }, type: { type: 'string', default: 'observation' }, plan_id: { type: 'string', description: 'Optional plan ID to associate this thought with' }, tags: { type: 'array', items: { type: 'string' }, description: 'Optional extra tags' } }, required: ['content'] } },
         { name: 'search_thoughts', description: 'Search thoughts by query', inputSchema: { type: 'object', properties: { q: { type: 'string' }, query: { type: 'string' }, limit: { type: 'number', default: 10 } }, required: [] } },
         { name: 'get_context', description: 'Get context: incomplete plans + recent thoughts', inputSchema: { type: 'object', properties: {} } },
+        { name: 'get_compaction_bundle', description: 'Get pre-compaction bundle with handoff docs and protected anchors', inputSchema: { type: 'object', properties: {} } },
       ],
     }));
 
@@ -94,6 +224,7 @@ class TPCServer {
         { uri: 'tpc://plans', name: 'All Plans', description: 'List of all plans in the system', mimeType: 'application/json' },
         { uri: 'tpc://thoughts', name: 'Recent Thoughts', description: 'Recent thoughts from the system', mimeType: 'application/json' },
         { uri: 'tpc://context', name: 'System Context', description: 'Current context: incomplete plans + recent thoughts', mimeType: 'application/json' },
+        { uri: 'tpc://compaction-bundle', name: 'Pre-compaction Bundle', description: 'Handoff-first compaction payload with protected anchors', mimeType: 'application/json' },
       ],
     }));
 
@@ -109,9 +240,21 @@ class TPCServer {
           return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(thoughts, null, 2) }] };
         }
         if (uri === 'tpc://context') {
-          const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
-          const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
-          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ plans, recent_thoughts, thoughts: recent_thoughts, counts: { plans: plans.length, recent_thoughts: recent_thoughts.length } }, null, 2) }] };
+          const contextPayload = await this.buildContextPayload();
+          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(contextPayload, null, 2) }] };
+        }
+        if (uri === 'tpc://compaction-bundle') {
+          const contextPayload = await this.buildContextPayload();
+          const bundle = {
+            generated_at: new Date().toISOString(),
+            source: 'handoff-first',
+            handoff_docs: contextPayload.handoff_docs,
+            compaction_anchors: contextPayload.compaction_anchors,
+            recent_thoughts: contextPayload.recent_thoughts,
+            open_plan_ids: contextPayload.plans.map((p) => p.id),
+            counts: contextPayload.counts,
+          };
+          return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(bundle, null, 2) }] };
         }
         throw new Error(`Unknown resource: ${uri}`);
       } catch (err) {
@@ -242,9 +385,21 @@ class TPCServer {
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
           }
           case 'get_context': {
-            const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
-            const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
-            return { content: [{ type: 'text', text: JSON.stringify({ plans, recent_thoughts, thoughts: recent_thoughts, counts: { plans: plans.length, recent_thoughts: recent_thoughts.length } }, null, 2) }] };
+            const contextPayload = await this.buildContextPayload();
+            return { content: [{ type: 'text', text: JSON.stringify(contextPayload, null, 2) }] };
+          }
+          case 'get_compaction_bundle': {
+            const contextPayload = await this.buildContextPayload();
+            const bundle = {
+              generated_at: new Date().toISOString(),
+              source: 'handoff-first',
+              handoff_docs: contextPayload.handoff_docs,
+              compaction_anchors: contextPayload.compaction_anchors,
+              recent_thoughts: contextPayload.recent_thoughts,
+              open_plan_ids: contextPayload.plans.map((p) => p.id),
+              counts: contextPayload.counts,
+            };
+            return { content: [{ type: 'text', text: JSON.stringify(bundle, null, 2) }] };
           }
           default:
             throw new Error(`Unknown tool: ${name}`);
