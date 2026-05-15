@@ -112,6 +112,10 @@ describe('MCP contract tests', () => {
     expect(Array.isArray(ctx.recent_thoughts)).toBe(true);
     expect(Array.isArray(ctx.handoff_docs)).toBe(true);
     expect(Array.isArray(ctx.compaction_anchors)).toBe(true);
+    expect(['A', 'B']).toContain(ctx.compaction_strategy);
+    expect(ctx.compaction_ab_test).toBeDefined();
+    expect(ctx.compaction_ab_test.A).toBeDefined();
+    expect(ctx.compaction_ab_test.B).toBeDefined();
     expect(ctx.counts).toBeDefined();
     expect(typeof ctx.counts.plans).toBe('number');
     expect(typeof ctx.counts.recent_thoughts).toBe('number');
@@ -127,6 +131,10 @@ describe('MCP contract tests', () => {
     expect(bundle.source).toBe('handoff-first');
     expect(Array.isArray(bundle.handoff_docs)).toBe(true);
     expect(Array.isArray(bundle.compaction_anchors)).toBe(true);
+    expect(['A', 'B']).toContain(bundle.compaction_strategy);
+    expect(bundle.compaction_ab_test).toBeDefined();
+    expect(bundle.compaction_ab_test.A).toBeDefined();
+    expect(bundle.compaction_ab_test.B).toBeDefined();
     expect(Array.isArray(bundle.recent_thoughts)).toBe(true);
     expect(Array.isArray(bundle.open_plan_ids)).toBe(true);
     expect(bundle.counts).toBeDefined();

@@ -95,7 +95,7 @@ class TPCServer {
       }));
   }
 
-  extractCompactionAnchors(handoffDocs = []) {
+  extractCompactionAnchorsA(handoffDocs = []) {
     const anchors = [];
 
     for (const doc of handoffDocs) {
@@ -116,36 +116,163 @@ class TPCServer {
       }
     }
 
+    return this.dedupeAnchors(anchors, 30);
+  }
+
+  tokenize(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-/\.\s]/g, ' ')
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t && t.length >= 3);
+  }
+
+  buildRelevanceLexicon(plans = [], thoughts = []) {
+    const weighted = new Map();
+
+    const ingest = (text, weight) => {
+      for (const token of this.tokenize(text)) {
+        const prior = weighted.get(token) || 0;
+        weighted.set(token, prior + weight);
+      }
+    };
+
+    for (const plan of plans) {
+      ingest(plan.title, 3);
+      ingest(plan.description, 2);
+      ingest(plan.tags, 2);
+    }
+    for (const thought of thoughts) {
+      ingest(thought.content, 2);
+      ingest(Array.isArray(thought.tags) ? thought.tags.join(' ') : '', 1);
+      ingest(thought.type, 1);
+    }
+
+    return weighted;
+  }
+
+  extractCompactionAnchorsB(handoffDocs = [], relevanceLexicon = new Map()) {
+    const candidates = [];
+
+    for (const doc of handoffDocs) {
+      const lines = String(doc.excerpt || '').split('\n');
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        const normalized = line
+          .replace(/^#+\s*/, '')
+          .replace(/^[-*]\s+/, '')
+          .replace(/^\d+\.\s+/, '')
+          .trim();
+        if (!normalized || normalized.length < 4) continue;
+
+        const isHeading = /^#+\s+/.test(line);
+        const isList = /^([-*]|\d+\.)\s+/.test(line);
+        const hasPath = /`[^`]+\/[^"]+`|\b\w+[\w.-]*\.(js|ts|tsx|md|json|yaml|yml|py)\b/.test(normalized);
+        const hasRoute = /\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+/i.test(normalized);
+        const hasActionVerb = /\b(fix|add|remove|update|build|deploy|test|debug|migrate|ship)\b/i.test(normalized);
+
+        let score = 0;
+        if (isHeading) score += 7;
+        if (isList) score += 4;
+        if (hasPath) score += 6;
+        if (hasRoute) score += 3;
+        if (hasActionVerb) score += 3;
+
+        for (const token of this.tokenize(normalized)) {
+          score += relevanceLexicon.get(token) || 0;
+        }
+
+        candidates.push({ source: doc.path, text: normalized, score });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score || b.text.length - a.text.length);
+    return this.dedupeAnchors(candidates.map((c) => ({ source: c.source, text: c.text })), 30);
+  }
+
+  dedupeAnchors(anchors = [], maxCount = 30) {
     const dedup = [];
     const seen = new Set();
     for (const anchor of anchors) {
-      const key = anchor.text.toLowerCase();
-      if (seen.has(key)) continue;
+      const key = String(anchor.text || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
       seen.add(key);
-      dedup.push(anchor);
-      if (dedup.length >= 30) break;
+      dedup.push({ source: anchor.source, text: anchor.text });
+      if (dedup.length >= maxCount) break;
+    }
+    return dedup;
+  }
+
+  scoreAnchorSet(anchors = [], relevanceLexicon = new Map()) {
+    if (!anchors.length) return { coverage: 0, density: 0, uniqueness: 0, score: 0 };
+
+    let weightedCoverage = 0;
+    let tokenCount = 0;
+    const uniqueTokens = new Set();
+
+    for (const anchor of anchors) {
+      const tokens = this.tokenize(anchor.text);
+      tokenCount += tokens.length;
+      for (const token of tokens) {
+        uniqueTokens.add(token);
+        weightedCoverage += relevanceLexicon.get(token) || 0;
+      }
     }
 
-    return dedup;
+    const uniqueness = uniqueTokens.size;
+    const density = tokenCount ? weightedCoverage / tokenCount : 0;
+    const score = weightedCoverage + density * 25 + uniqueness * 0.6;
+
+    return {
+      coverage: weightedCoverage,
+      density: Number(density.toFixed(3)),
+      uniqueness,
+      score: Number(score.toFixed(2)),
+    };
+  }
+
+  chooseCompactionAnchors(handoffDocs = [], plans = [], recentThoughts = []) {
+    const relevanceLexicon = this.buildRelevanceLexicon(plans, recentThoughts);
+    const variantA = this.extractCompactionAnchorsA(handoffDocs);
+    const variantB = this.extractCompactionAnchorsB(handoffDocs, relevanceLexicon);
+
+    const scoreA = this.scoreAnchorSet(variantA, relevanceLexicon);
+    const scoreB = this.scoreAnchorSet(variantB, relevanceLexicon);
+
+    const chosen = scoreB.score >= scoreA.score ? { id: 'B', anchors: variantB, score: scoreB } : { id: 'A', anchors: variantA, score: scoreA };
+
+    return {
+      chosen_strategy: chosen.id,
+      compaction_anchors: chosen.anchors,
+      ab_test: {
+        A: { ...scoreA, anchor_count: variantA.length },
+        B: { ...scoreB, anchor_count: variantB.length },
+      },
+    };
   }
 
   async buildContextPayload() {
     const plans = this.db.prepare("SELECT * FROM plans WHERE status != 'completed' AND status != 'rejected' ORDER BY last_modified_at DESC").all();
     const recent_thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10').all().map((t) => this.normalizeThoughtRow(t));
     const handoff_docs = await this.collectHandoffDocs();
-    const compaction_anchors = this.extractCompactionAnchors(handoff_docs);
+    const compactionSelection = this.chooseCompactionAnchors(handoff_docs, plans, recent_thoughts);
 
     return {
       plans,
       recent_thoughts,
       thoughts: recent_thoughts,
       handoff_docs,
-      compaction_anchors,
+      compaction_anchors: compactionSelection.compaction_anchors,
+      compaction_strategy: compactionSelection.chosen_strategy,
+      compaction_ab_test: compactionSelection.ab_test,
       counts: {
         plans: plans.length,
         recent_thoughts: recent_thoughts.length,
         handoff_docs: handoff_docs.length,
-        compaction_anchors: compaction_anchors.length,
+        compaction_anchors: compactionSelection.compaction_anchors.length,
       },
     };
   }
@@ -248,6 +375,8 @@ class TPCServer {
           const bundle = {
             generated_at: new Date().toISOString(),
             source: 'handoff-first',
+            compaction_strategy: contextPayload.compaction_strategy,
+            compaction_ab_test: contextPayload.compaction_ab_test,
             handoff_docs: contextPayload.handoff_docs,
             compaction_anchors: contextPayload.compaction_anchors,
             recent_thoughts: contextPayload.recent_thoughts,
@@ -393,6 +522,8 @@ class TPCServer {
             const bundle = {
               generated_at: new Date().toISOString(),
               source: 'handoff-first',
+              compaction_strategy: contextPayload.compaction_strategy,
+              compaction_ab_test: contextPayload.compaction_ab_test,
               handoff_docs: contextPayload.handoff_docs,
               compaction_anchors: contextPayload.compaction_anchors,
               recent_thoughts: contextPayload.recent_thoughts,
