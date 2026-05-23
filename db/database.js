@@ -8,6 +8,18 @@ const GLOBAL_DB_PATH = path.join(__dirname, '..', 'data', 'tpc.db');
 const BACKUP_DIR = path.join(__dirname, '..', 'data', 'backups');
 const MAX_BACKUPS = 7;
 
+async function ensureWritableDBPath(dbPath) {
+  const dir = path.dirname(dbPath);
+  await fs.mkdir(dir, { recursive: true });
+
+  // Best-effort permission normalization. Ignore chmod errors on filesystems that don't support it.
+  try { await fs.chmod(dir, 0o775); } catch {}
+
+  if (fssync.existsSync(dbPath)) {
+    try { await fs.chmod(dbPath, 0o664); } catch {}
+  }
+}
+
 // Low-level query helpers
 async function _getAll(db, sql, params = []) {
   if (!db) throw new Error('DB not initialized');
@@ -338,6 +350,7 @@ async function performMigration(db, skipMigration = false) {
 
 // Main initDB function
 async function initDB(dbPath, skipMigration = false) {
+  await ensureWritableDBPath(dbPath);
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
