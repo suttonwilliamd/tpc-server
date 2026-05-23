@@ -212,6 +212,41 @@ async function performMigration(db, skipMigration = false) {
   // Add indexes on tags
   await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_plans_tags ON plans(tags)');
   await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts(tags)');
+  await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_plans_status_last_modified ON plans(status, last_modified_at DESC)');
+  await runSql(db, 'CREATE INDEX IF NOT EXISTS idx_thoughts_timestamp ON thoughts(timestamp DESC)');
+
+  // FTS5 virtual table for thought search performance
+  await runSql(db, `
+    CREATE VIRTUAL TABLE IF NOT EXISTS thoughts_fts
+    USING fts5(content, tags, content='thoughts', content_rowid='id')
+  `);
+
+  // Keep FTS table in sync with base table (idempotent trigger setup)
+  await runSql(db, 'DROP TRIGGER IF EXISTS thoughts_ai');
+  await runSql(db, 'DROP TRIGGER IF EXISTS thoughts_ad');
+  await runSql(db, 'DROP TRIGGER IF EXISTS thoughts_au');
+
+  await runSql(db, `
+    CREATE TRIGGER thoughts_ai AFTER INSERT ON thoughts BEGIN
+      INSERT INTO thoughts_fts(rowid, content, tags) VALUES (new.id, new.content, COALESCE(new.tags, '[]'));
+    END
+  `);
+
+  await runSql(db, `
+    CREATE TRIGGER thoughts_ad AFTER DELETE ON thoughts BEGIN
+      INSERT INTO thoughts_fts(thoughts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, COALESCE(old.tags, '[]'));
+    END
+  `);
+
+  await runSql(db, `
+    CREATE TRIGGER thoughts_au AFTER UPDATE ON thoughts BEGIN
+      INSERT INTO thoughts_fts(thoughts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, COALESCE(old.tags, '[]'));
+      INSERT INTO thoughts_fts(rowid, content, tags) VALUES (new.id, new.content, COALESCE(new.tags, '[]'));
+    END
+  `);
+
+  // Rebuild index from canonical table to ensure sync for pre-existing rows
+  await runSql(db, "INSERT INTO thoughts_fts(thoughts_fts) VALUES('rebuild')");
 
   // Mark baseline migration if missing
   await runSql(

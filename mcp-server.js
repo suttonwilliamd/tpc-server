@@ -302,6 +302,16 @@ class TPCServer {
     if (n > max) throw this.validationError(`${field} exceeds max allowed value (${max})`);
   }
 
+  assertNonNegativeInt(value, field, { required = false, max = 1000 } = {}) {
+    if (value == null || value === '') {
+      if (required) throw this.validationError(`${field} is required`);
+      return;
+    }
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0) throw this.validationError(`${field} must be a non-negative integer`);
+    if (n > max) throw this.validationError(`${field} exceeds max allowed value (${max})`);
+  }
+
   assertStringArray(value, field, { maxItems = 32, maxItemLength = 64 } = {}) {
     if (value == null) return;
     if (!Array.isArray(value)) throw this.validationError(`${field} must be an array of strings`);
@@ -334,13 +344,13 @@ class TPCServer {
   setupHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
-        { name: 'list_plans', description: 'List all plans in the TPC system', inputSchema: { type: 'object', properties: { status: { type: 'string', description: 'Filter by status: proposed, in_progress, completed, rejected' } } } },
+        { name: 'list_plans', description: 'List all plans in the TPC system', inputSchema: { type: 'object', properties: { status: { type: 'string', description: 'Filter by status: proposed, in_progress, completed, rejected' }, limit: { type: 'number', default: 50 }, offset: { type: 'number', default: 0 } } } },
         { name: 'get_plan', description: 'Get a specific plan by ID', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The plan ID' } }, required: ['id'] } },
         { name: 'create_plan', description: 'Create a new plan', inputSchema: { type: 'object', properties: { title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', default: 'proposed' }, tags: { type: 'array', items: { type: 'string' } } }, required: ['title', 'description'] } },
         { name: 'update_plan', description: 'Update an existing plan', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, changelog_entry: { type: 'string' }, thought: { type: 'string' } }, required: ['id'] } },
-        { name: 'list_thoughts', description: 'List recent thoughts', inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 10 } } } },
+        { name: 'list_thoughts', description: 'List recent thoughts', inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 10 }, offset: { type: 'number', default: 0 }, plan_id: { type: 'string' } } } },
         { name: 'create_thought', description: 'Create a new thought', inputSchema: { type: 'object', properties: { content: { type: 'string' }, type: { type: 'string', default: 'observation' }, plan_id: { type: 'string', description: 'Optional plan ID to associate this thought with' }, tags: { type: 'array', items: { type: 'string' }, description: 'Optional extra tags' } }, required: ['content'] } },
-        { name: 'search_thoughts', description: 'Search thoughts by query', inputSchema: { type: 'object', properties: { q: { type: 'string' }, query: { type: 'string' }, limit: { type: 'number', default: 10 } }, required: [] } },
+        { name: 'search_thoughts', description: 'Search thoughts by query', inputSchema: { type: 'object', properties: { q: { type: 'string' }, query: { type: 'string' }, limit: { type: 'number', default: 10 }, offset: { type: 'number', default: 0 } }, required: [] } },
         { name: 'get_context', description: 'Get context: incomplete plans + recent thoughts', inputSchema: { type: 'object', properties: {} } },
         { name: 'get_compaction_bundle', description: 'Get pre-compaction bundle with handoff docs and protected anchors', inputSchema: { type: 'object', properties: {} } },
       ],
@@ -396,13 +406,18 @@ class TPCServer {
       try {
         switch (name) {
           case 'list_plans': {
+            this.assertPositiveInt(args.limit, 'limit', { max: 500 });
+            this.assertNonNegativeInt(args.offset, 'offset', { max: 1000000 });
             let query = 'SELECT * FROM plans';
             const params = [];
             if (args.status) {
               query += ' WHERE status = ?';
               params.push(args.status);
             }
-            query += ' ORDER BY last_modified_at DESC';
+            query += ' ORDER BY last_modified_at DESC LIMIT ? OFFSET ?';
+            const limit = Number(args.limit) || 50;
+            const offset = Number(args.offset) || 0;
+            params.push(limit, offset);
             const plans = this.db.prepare(query).all(...params);
             return { content: [{ type: 'text', text: JSON.stringify(plans, null, 2) }] };
           }
@@ -473,13 +488,15 @@ class TPCServer {
           }
           case 'list_thoughts': {
             this.assertPositiveInt(args.limit, 'limit', { max: 200 });
+            this.assertNonNegativeInt(args.offset, 'offset', { max: 1000000 });
             this.assertPositiveInt(args.plan_id, 'plan_id', { max: 2147483647 });
             const limit = Number(args.limit) || 10;
+            const offset = Number(args.offset) || 0;
             let thoughts;
             if (args.plan_id) {
-              thoughts = this.db.prepare('SELECT * FROM thoughts WHERE plan_id = ? ORDER BY timestamp DESC LIMIT ?').all(Number(args.plan_id), limit);
+              thoughts = this.db.prepare('SELECT * FROM thoughts WHERE plan_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?').all(Number(args.plan_id), limit, offset);
             } else {
-              thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT ?').all(limit);
+              thoughts = this.db.prepare('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT ? OFFSET ?').all(limit, offset);
             }
             thoughts = thoughts.map((t) => this.normalizeThoughtRow(t));
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
@@ -507,10 +524,27 @@ class TPCServer {
             this.assertString(args.q, 'q', { maxLength: 2000 });
             this.assertString(args.query, 'query', { maxLength: 2000 });
             this.assertPositiveInt(args.limit, 'limit', { max: 200 });
+            this.assertNonNegativeInt(args.offset, 'offset', { max: 1000000 });
             const q = args.q || args.query;
             if (!q) return { content: [{ type: 'text', text: 'Error: q or query is required' }], isError: true };
             const limit = Number(args.limit) || 10;
-            const thoughts = this.db.prepare('SELECT * FROM thoughts WHERE content LIKE ? ORDER BY timestamp DESC LIMIT ?').all(`%${q}%`, limit).map((t) => this.normalizeThoughtRow(t));
+            const offset = Number(args.offset) || 0;
+
+            // Prefer FTS5 index; fallback to LIKE if index unavailable.
+            let thoughts;
+            try {
+              thoughts = this.db.prepare(`
+                SELECT t.*
+                FROM thoughts_fts f
+                JOIN thoughts t ON t.id = f.rowid
+                WHERE thoughts_fts MATCH ?
+                ORDER BY bm25(thoughts_fts), t.timestamp DESC
+                LIMIT ? OFFSET ?
+              `).all(q, limit, offset);
+            } catch {
+              thoughts = this.db.prepare('SELECT * FROM thoughts WHERE content LIKE ? OR tags LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?').all(`%${q}%`, `%${q}%`, limit, offset);
+            }
+            thoughts = thoughts.map((t) => this.normalizeThoughtRow(t));
             return { content: [{ type: 'text', text: JSON.stringify(thoughts, null, 2) }] };
           }
           case 'get_context': {

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- SQLite FTS5 indexing for MCP thought search via `thoughts_fts` virtual table, with insert/update/delete sync triggers and automatic index rebuild during migration.
+- New DB performance indexes for high-volume MCP usage:
+  - `idx_plans_status_last_modified` on `(status, last_modified_at DESC)`
+  - `idx_thoughts_timestamp` on `(timestamp DESC)`
+
+### Changed
+- MCP pagination support:
+  - `list_plans` now accepts `limit` and `offset`
+  - `list_thoughts` now accepts `limit`, `offset`, and `plan_id`
+  - `search_thoughts` now accepts `limit` and `offset`
+- `search_thoughts` now prefers FTS5 (`MATCH` + `bm25`) and falls back to legacy `LIKE` search if FTS is unavailable.
+
 ## [2.8.0] - 2025-10-06
 
 ### Added
