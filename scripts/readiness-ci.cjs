@@ -22,6 +22,21 @@ function childEnvironment(root, inherited = process.env) {
   return env;
 }
 
+// Finite representations of this runner's known root, not a secret scrubber.
+function redactSyntheticRoot(value, root) {
+  const forms = new Set();
+  for (const form of [root, root.replaceAll('\\', '/')]) {
+    forms.add(form);
+    forms.add(form.replaceAll('\\', '\\\\')); // Node inspection backslashes
+    forms.add(JSON.stringify(form).slice(1, -1));
+  }
+  const alternatives = [...forms].sort((a, b) => b.length - a.length)
+    .map(form => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // Do not match a sibling sharing the root's prefix or a longer path prefix.
+  const pattern = new RegExp(`(^|[^a-zA-Z0-9_./\\\\-])(?:${alternatives})(?=$|[/\\\\\\s'"\x60,;:)\\]}])`, 'g');
+  return (value || '').replace(pattern, '$1[synthetic-root]');
+}
+
 function runBounded(args, parent, timeout = 25000) {
   if (!parent || !path.isAbsolute(parent)) throw new Error('An absolute synthetic parent directory is required');
   fs.mkdirSync(parent, { recursive: true });
@@ -35,7 +50,7 @@ function runBounded(args, parent, timeout = 25000) {
       cwd: path.resolve(__dirname, '..'), env, timeout, killSignal: 'SIGKILL',
       encoding: 'utf8', maxBuffer: 1024 * 1024, windowsHide: true
     });
-    const sanitize = value => (value || '').split(root).join('[synthetic-root]');
+    const sanitize = value => redactSyntheticRoot(value, root);
     const output = sanitize(result.stdout) + sanitize(result.stderr);
     return { status: result.error || result.signal || result.status === null ? 1 : result.status,
       reason: result.error ? result.error.code : result.signal || 'exit', output };
@@ -68,4 +83,4 @@ if (require.main === module) {
     process.exitCode = 1;
   }
 }
-module.exports = { childEnvironment, runBounded };
+module.exports = { childEnvironment, runBounded, redactSyntheticRoot };

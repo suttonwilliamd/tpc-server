@@ -54,6 +54,8 @@ module-relative synthetic files, native SQLite and 127.0.0.1 ephemeral HTTP only
 The six startup contracts and four native integration states are not weakened.
 The probe file tests allowlist behavior, actual child isolation, exit 7, a stalled
 child deadline, invalid relative parent rejection and success/failure cleanup.
+Additional regressions cover output overflow and signals, plus real bounded child
+stdout/stderr diagnostic redaction (including a spaces/Unicode synthetic parent).
 
 ## Authorized-root handoff and acceptance
 
@@ -72,8 +74,16 @@ Inspect the actual run and both distinct matrix jobs, not only workflow syntax:
    health 200. Confirm synthetic root removal and compare exact tested SHA.
 4. If setup fails, inspect the Actions step output; no install log is uploaded.
    An absent runtime artifact is not success. Artifacts contain only the sanitized
-   bounded test/provenance log (synthetic paths replaced), never DBs, binaries,
-   source/user data or credentials, and expire after seven days.
+   bounded test/provenance log, not DBs or binaries, and expire after seven days.
+   The runner redacts its known synthetic root in raw and forward-slash-normalized
+   forms, each also with doubled backslashes (Node inspection) or one JSON string
+   escaping layer. Descendant suffixes and unrelated diagnostic text are retained;
+   path-prefix/sibling lookalikes are not replaced. This is a finite literal-root
+   diagnostic filter, **not arbitrary secret or user-data scrubbing**. It does not
+   promise case-folded paths, mixed separator spellings, URL/HTML encodings,
+   repeated JSON encoding, truncated roots, or every inspection quoting/control
+   character convention. Input must remain synthetic and environment-allowlisted;
+   never upload arbitrary program output on the assumption this filter makes it safe.
 
 Windows path/case-insensitive environment handling and junction support are
 static reasoning until the actual native Windows job succeeds. Local Linux
