@@ -32,8 +32,11 @@ function redactSyntheticRoot(value, root) {
   }
   const alternatives = [...forms].sort((a, b) => b.length - a.length)
     .map(form => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // Numeric/semicolon SGR is diagnostic framing, not a path continuation.
+  // Retain it verbatim; do not strip controls or parse other terminal sequences.
+  const sgr = '\\x1b\\[[0-9;]*m';
   // Do not match a sibling sharing the root's prefix or a longer path prefix.
-  const pattern = new RegExp(`(^|[^a-zA-Z0-9_./\\\\-])(?:${alternatives})(?=$|[/\\\\\\s'"\x60,;:)\\]}])`, 'g');
+  const pattern = new RegExp(`(^|${sgr}|[^a-zA-Z0-9_./\\\\-])(?:${alternatives})(?=$|${sgr}|[/\\\\\\s'"\x60,;:)\\]}])`, 'g');
   return (value || '').replace(pattern, '$1[synthetic-root]');
 }
 

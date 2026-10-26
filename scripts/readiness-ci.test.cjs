@@ -63,6 +63,43 @@ test('synthetic Windows roots redact raw, JSON, inspection and normalized forms 
   }
 });
 
+test('ANSI SGR framing redacts Windows roots while retaining framing and lookalikes', () => {
+  for (const root of ['D:\\a\\_temp\\readiness-ci-ABC123',
+    'C:\\space 雪 café\\dots.[x]+(y)\\readiness-ci-DEF456']) {
+    for (const form of [root, root.replaceAll('\\', '/')]) {
+      for (const prefix of ['', '\x1b[31m', '\x1b[1;32m', '\x1b[m']) {
+        const input = prefix + form + '\x1b[0m';
+        assert.equal(redactSyntheticRoot(input, root), prefix + '[synthetic-root]\x1b[0m');
+        for (const suffix of ['-sibling', 'Extra']) {
+          const sibling = prefix + form + suffix + '\x1b[0m';
+          assert.equal(redactSyntheticRoot(sibling, root), sibling);
+        }
+      }
+      const longerPrefix = '\x1b[31mprefix' + form + '\x1b[0m';
+      assert.equal(redactSyntheticRoot(longerPrefix, root), longerPrefix);
+    }
+    // This is a finite SGR boundary rule, not an arbitrary terminal parser.
+    for (const suffix of ['\x1b[2K', '\x1b[bogus', '\x1b']) {
+      assert.equal(redactSyntheticRoot(root + suffix, root), root + suffix);
+    }
+  }
+});
+
+test('actual ANSI child stdout/stderr redact roots, propagate exit13 and clean up', () => {
+  fs.mkdirSync(parent, { recursive: true });
+  const before = fs.readdirSync(parent).sort();
+  const result = runBounded(['-e', `const path=require('node:path');
+    const root=path.dirname(process.env.TPC_RUNTIME_FIXTURE_ROOT);
+    process.stdout.write('stdout: \\x1b[31m'+root+'\\x1b[0m\\n');
+    process.stderr.write('stderr: '+root+'\\x1b[0m\\n');
+    process.exit(13);`], parent, 2000);
+  assert.equal(result.status, 13);
+  assert.equal(result.reason, 'exit');
+  assert.equal(result.output.includes(parent), false);
+  assert.equal(result.output, 'stdout: \x1b[31m[synthetic-root]\x1b[0m\nstderr: [synthetic-root]\x1b[0m\n');
+  assert.deepEqual(fs.readdirSync(parent).sort(), before);
+});
+
 test('actual child stdout/stderr representations are redacted without hiding failure', () => {
   const before = fs.readdirSync(parent).sort();
   const spacedParent = path.join(parent, 'space 雪 café');

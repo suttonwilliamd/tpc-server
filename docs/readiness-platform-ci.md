@@ -56,6 +56,12 @@ The probe file tests allowlist behavior, actual child isolation, exit 7, a stall
 child deadline, invalid relative parent rejection and success/failure cleanup.
 Additional regressions cover output overflow and signals, plus real bounded child
 stdout/stderr diagnostic redaction (including a spaces/Unicode synthetic parent).
+ANSI regressions cover static Windows roots and actual child stdout/stderr with
+exit 13 and cleanup; these fail against the previous sanitizer. Numeric/semicolon
+SGR sequences (`ESC [` followed by zero or more digits/semicolons and `m`) are
+recognized only as root boundaries, retained byte-for-byte in output. This narrow
+correction avoids treating the final `m` of a color prefix or the ESC of a reset
+as a path character; it does not strip colors or change subprocess handling.
 
 ## Authorized-root handoff and acceptance
 
@@ -82,8 +88,10 @@ Inspect the actual run and both distinct matrix jobs, not only workflow syntax:
    diagnostic filter, **not arbitrary secret or user-data scrubbing**. It does not
    promise case-folded paths, mixed separator spellings, URL/HTML encodings,
    repeated JSON encoding, truncated roots, or every inspection quoting/control
-   character convention. Input must remain synthetic and environment-allowlisted;
-   never upload arbitrary program output on the assumption this filter makes it safe.
+   character convention. Other terminal sequences (including non-SGR CSI, OSC,
+   colon-form SGR and incomplete/malformed escapes) are not recognized framing.
+   Input must remain synthetic and environment-allowlisted; never upload arbitrary
+   program output on the assumption this filter makes it safe.
 
 Windows path/case-insensitive environment handling and junction support are
 static reasoning until the actual native Windows job succeeds. Local Linux
