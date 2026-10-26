@@ -15,6 +15,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 Run `npm test` (or `npm run test:unit`) to execute Jest API/integration tests.
 Run `npm run test:e2e` for Playwright UI tests.
 Run `npm run smoke:mcp` for deterministic MCP plan/thought lifecycle smoke validation.
+Run `npm run test:startup-contract` for dependency-free, injected offline startup/readiness tests.
 
 ### Production Security
 `/tpc.db` download is disabled in production by default.
@@ -22,7 +23,10 @@ To explicitly allow it, set `EXPOSE_TPC_DB=true`.
 
 ### Operational Endpoints
 - `GET /health` returns basic liveness info.
-- `GET /ready` returns readiness info and DB path.
+- `GET /ready` returns readiness info and DB path after a successful database query, or 503 when unavailable.
+
+See the [startup/readiness contract](docs/startup-readiness.md) for initialization,
+failure behavior, test boundaries, and limitations.
 
 ### Data Contract (REST + MCP)
 - **IDs**: integer autoincrement IDs from SQLite for plans/thoughts.

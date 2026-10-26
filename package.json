@@ -5,6 +5,7 @@
   "scripts": {
     "test": "npm run test:unit",
     "test:unit": "cross-env NODE_ENV=test jest --runInBand",
+    "test:startup-contract": "node --test scripts/startup-contract.test.cjs",
     "test:e2e": "playwright test",
     "mcp": "node mcp-server.js",
     "smoke:mcp": "node scripts/mcp-smoke.js",
