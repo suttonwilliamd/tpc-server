@@ -22,15 +22,21 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      npm_config_cache: ${{ runner.temp }}/readiness-cache
-      HOME: ${{ runner.temp }}/readiness-home
-      TMPDIR: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
-      TEMP: ${{ runner.temp }}
-      TPC_RUNTIME_FIXTURE_ROOT: ${{ runner.temp }}/readiness-probes
-      READINESS_FIXTURE_PARENT: ${{ runner.temp }}/readiness-qualification
     steps:
+      - name: Initialize isolated runner environment
+        # runner context is available in step env, not job env.
+        env:
+          npm_config_cache: ${{ runner.temp }}/readiness-cache
+          HOME: ${{ runner.temp }}/readiness-home
+          TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TPC_RUNTIME_FIXTURE_ROOT: ${{ runner.temp }}/readiness-probes
+          READINESS_FIXTURE_PARENT: ${{ runner.temp }}/readiness-qualification
+        run: |
+          for name in npm_config_cache HOME TMPDIR TMP TEMP TPC_RUNTIME_FIXTURE_ROOT READINESS_FIXTURE_PARENT; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          done
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
