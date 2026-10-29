@@ -1,0 +1,65 @@
+name: Bounded readiness qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Readiness / ${{ matrix.os }} / Node 22
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize isolated runner environment
+        # runner context is available in step env, not job env.
+        env:
+          npm_config_cache: ${{ runner.temp }}/readiness-cache
+          HOME: ${{ runner.temp }}/readiness-home
+          TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TPC_RUNTIME_FIXTURE_ROOT: ${{ runner.temp }}/readiness-probes
+          READINESS_FIXTURE_PARENT: ${{ runner.temp }}/readiness-qualification
+        run: |
+          for name in npm_config_cache HOME TMPDIR TMP TEMP TPC_RUNTIME_FIXTURE_ROOT READINESS_FIXTURE_PARENT; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$GITHUB_ENV"
+          done
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund --fetch-retries=0 --fetch-timeout=20000
+      - name: Provision only sqlite3 via inspected package-supported N-API route
+        # No source-build fallback or other native packages. Missing prebuilt fails closed.
+        run: node -e 'const p=require("node:path");const r=require("node:child_process").spawnSync(process.execPath,[require.resolve("prebuild-install/bin.js"),"-r","napi"],{cwd:p.dirname(require.resolve("sqlite3/package.json")),stdio:"inherit",timeout:60000,killSignal:"SIGKILL"});process.exit(r.error||r.signal||r.status===null?1:r.status)'
+      - name: Offline runner regression probes
+        run: node --test --test-timeout=10000 scripts/readiness-ci.test.cjs
+      - name: Actual unchanged readiness contracts and native integration
+        # Write only sanitized runner output, not install logs, DBs or native files.
+        run: |
+          mkdir -p readiness-results
+          node scripts/readiness-ci.cjs "$READINESS_FIXTURE_PARENT" > readiness-results/readiness.log 2>&1
+      - name: Upload concise readiness result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readiness-${{ matrix.os }}-node22
+          path: readiness-results/readiness.log
+          if-no-files-found: ignore
+          retention-days: 7

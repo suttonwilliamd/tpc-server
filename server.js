@@ -4,7 +4,7 @@ const path = require('path');
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Import DB module
-const { initGlobalDB, cleanDB: globalCleanDB } = require('./db/database.js');
+const { initGlobalDB, getDB, cleanDB: globalCleanDB } = require('./db/database.js');
 
 // Import route modules
 const plansRouter = require('./routes/plans.js');
@@ -44,8 +44,12 @@ globalApp.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'tpc-server', timestamp: new Date().toISOString() });
 });
 
-globalApp.get('/ready', (req, res) => {
+globalApp.get('/ready', async (req, res) => {
   try {
+    const db = getDB();
+    await new Promise((resolve, reject) => {
+      db.get('SELECT 1', (err) => err ? reject(err) : resolve());
+    });
     const dbPath = path.join(__dirname, 'data', 'tpc.db');
     res.json({ ready: true, db: dbPath });
   } catch (err) {
