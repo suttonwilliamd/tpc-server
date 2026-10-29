@@ -179,31 +179,10 @@ describe('MCP Performance Benchmarking Tests', () => {
     });
   });
 
-  describe('Cache Performance Tests', () => {
-    it('should validate cache efficiency for tool examples', async () => {
-      // First request - cache miss
-      const firstStart = Date.now();
-      const firstResponse = await testApp
-        .get('/tools/examples?tool_name=tool_search_tool_regex_20251119')
-        .expect(200);
-      const firstTime = Date.now() - firstStart;
-
-      // Second request - cache hit
-      const secondStart = Date.now();
-      const secondResponse = await testApp
-        .get('/tools/examples?tool_name=tool_search_tool_regex_20251119')
-        .expect(200);
-      const secondTime = Date.now() - secondStart;
-
-      // Cache hit should generally be faster, but CI timing jitter can invert tiny samples.
-      // Keep this as a non-flaky sanity threshold while still catching major regressions.
-      const speedup = firstTime / Math.max(secondTime, 1);
-      expect(speedup).toBeGreaterThanOrEqual(0.8);
-
-      console.log(`Cache provides ${speedup.toFixed(2)}x speedup`);
-    });
-
-    it('should test cache TTL and invalidation', async () => {
+  // Cold/hit branch contracts use isolated state and controlled time/delay in
+  // test_example_timestamp_cache.js, not an end-to-end wall-clock ratio.
+  describe('Example timestamp retention', () => {
+    it('should retain the timestamp on repeated HTTP requests', async () => {
       // Get initial response
       const initialResponse = await testApp
         .get('/tools/examples?tool_name=tool_search_tool_regex_20251119')
@@ -217,7 +196,7 @@ describe('MCP Performance Benchmarking Tests', () => {
         .get('/tools/examples?tool_name=tool_search_tool_regex_20251119')
         .expect(200);
 
-      // Should still be cached (TTL is longer)
+      // This checks retention only; the cache has no TTL/invalidation contract.
       expect(secondResponse.body.timestamp).toBe(initialTimestamp);
     });
   });

@@ -1,6 +1,7 @@
 const express = require('express');
 const { Router } = express;
 const { ToolNotFoundError } = require('../middleware/errorHandler');
+const { createExampleTimestampCache, sleepMs } = require('./exampleTimestampCache');
 
 const router = Router();
 
@@ -46,12 +47,8 @@ const EXTRA_TOOLS = [
 ];
 
 const TOOL_BY_NAME = new Map(TOOL_CATALOG.map(t => [t.tool_name, t]));
-const EXAMPLE_TIMESTAMP_CACHE = new Map();
-
-function sleepMs(ms) {
-  const start = Date.now();
-  while (Date.now() - start < ms) {}
-}
+// Preserve the original module-wide, tool-name key scope across app instances.
+const getExampleTimestamp = createExampleTimestampCache();
 
 function badRequest(message) {
   const err = new Error(message);
@@ -159,10 +156,7 @@ router.get('/examples', (req, res, next) => {
     const toolName = req.query.tool_name || 'tool_search_tool_regex_20251119';
     const tool = getTool(toolName);
 
-    const cacheHit = EXAMPLE_TIMESTAMP_CACHE.has(toolName);
-    const ts = EXAMPLE_TIMESTAMP_CACHE.get(toolName) || new Date().toISOString();
-    EXAMPLE_TIMESTAMP_CACHE.set(toolName, ts);
-    sleepMs(cacheHit ? 1 : 40);
+    const ts = getExampleTimestamp(toolName);
 
     res.json({
       tool_name: toolName,
