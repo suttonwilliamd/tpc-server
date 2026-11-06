@@ -2,22 +2,26 @@
 const path = require('path');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { createIsolatedRuntime } = require('../scripts/isolated-runtime');
 
 describe('MCP contract tests', () => {
   let client;
   let transport;
+  let runtime;
 
   beforeAll(async () => {
+    runtime = await createIsolatedRuntime();
     client = new Client({ name: 'tpc-contract-test', version: '1.0.0' }, { capabilities: {} });
     transport = new StdioClientTransport({
       command: 'node',
-      args: [path.join(__dirname, '..', 'mcp-server.js')],
+      args: [path.join(runtime.root, 'mcp-server.js')],
     });
     await client.connect(transport);
   });
 
   afterAll(async () => {
     if (client) await client.close();
+    if (runtime) await runtime.close();
   });
 
   it('exposes expected MCP tools', async () => {
@@ -96,7 +100,7 @@ describe('MCP contract tests', () => {
 
     const searchRes = await client.callTool({
       name: 'search_thoughts',
-      arguments: { query: 'linked-thought', limit: 10 },
+      arguments: { q: 'linked-thought', limit: 10 },
     });
     expect(searchRes.isError).not.toBe(true);
     const matched = JSON.parse(searchRes.content[0].text);
@@ -165,10 +169,10 @@ describe('MCP contract tests', () => {
 
     const badSearch = await client.callTool({
       name: 'search_thoughts',
-      arguments: { query: 123 },
+      arguments: { q: 123 },
     });
     expect(badSearch.isError).toBe(true);
-    expect(badSearch.content[0].text).toContain('query must be a string');
+    expect(badSearch.content[0].text).toContain('q must be a non-empty string');
 
     const badPlan = await client.callTool({
       name: 'create_plan',

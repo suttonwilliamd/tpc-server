@@ -20,7 +20,7 @@ remains separate (`npm test`) and requires installed dependencies.
 - Running it as the main module awaits `initGlobalDB()` before `listen(PORT)`.
   The promise represents backup preparation, opening SQLite and completion of
   `performMigration`, not merely opening the file. Schema creation, alterations,
-  indexes, FTS triggers/rebuild, and baseline migration bookkeeping are awaited.
+  indexes, retirement of obsolete MCP-only FTS artifacts, and baseline migration bookkeeping are awaited.
 - Historical JSON imports are **best effort**: their errors are caught and logged
   inside `performMigration`. Initialization resolving does not certify all legacy
   JSON was imported. `skipMigration=true` skips JSON import, not schema setup.

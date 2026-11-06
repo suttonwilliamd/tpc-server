@@ -66,7 +66,7 @@ test('real Express readiness with real sqlite3 and synthetic on-disk database', 
       assert.ok(Number.isFinite(Date.parse(response.body.timestamp)));
     });
     await t.test('real migration and successful SQLite callback return 200', async () => {
-      // skipMigration skips JSON imports, NOT the actual schema/FTS migrations.
+      // skipMigration skips JSON imports, NOT the actual schema/index migrations.
       await database.initGlobalDB(true);
       db = database.getDB();
       assert.equal(db.constructor.name, 'Database');

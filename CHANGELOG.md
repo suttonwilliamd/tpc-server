@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- SQLite FTS5 indexing for MCP thought search via `thoughts_fts` virtual table, with insert/update/delete sync triggers and automatic index rebuild during migration.
+- Shared SQLite literal-search query builder used by REST, MCP and searched context, plus isolated SQLite regressions, actual HTTP/MCP lifecycle parity tests, and twelve disposable Chromium search UI tests.
 - New DB performance indexes for high-volume MCP usage:
   - `idx_plans_status_last_modified` on `(status, last_modified_at DESC)`
   - `idx_thoughts_timestamp` on `(timestamp DESC)`
@@ -17,8 +17,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP pagination support:
   - `list_plans` now accepts `limit` and `offset`
   - `list_thoughts` now accepts `limit`, `offset`, and `plan_id`
-  - `search_thoughts` now accepts `limit` and `offset`
-- `search_thoughts` now prefers FTS5 (`MATCH` + `bm25`) and falls back to legacy `LIKE` search if FTS is unavailable.
+  - `search_thoughts` accepts `q`, exact all-tag `tags` arrays, `limit` (1–50) and `offset` (0–1,000,000); the `query` alias is removed.
+- `/search` accepts only `type=all|plans|thoughts`; singular response `type` values and result field shapes are unchanged. Search CSV tag filters migrate to repeated keys (`tags=ai&tags=urgent`); a comma inside a value is now literal. Unrelated list/CRUD formats remain unchanged.
+- Text search is a literal substring over title/description/content and decoded tag values, with ASCII-only case folding. SQL wildcard and FTS syntax no longer alter matches. The old MCP-only FTS table and sync triggers are retired during migration.
+- `/context?search=` reuses literal ranking and bounds searched results to 50 non-completed plans and 10 thoughts. Unsearched context behavior and both response shapes are preserved.
+- UI text search now calls the canonical REST endpoint, respects plural type selectors and all selected tags, preserves global ranking, ignores stale responses, and fetches full result details for its modal. Pending detail responses/errors are invalidated by newer selections, render/search changes, immediate input events and dismissal, preserving the latest modal and results.
+- Enter cancels the queued search-input debounce before rendering immediate results, preventing a redundant timer-driven render from invalidating valid detail requests selected from those results.
+- MCP smoke and contract tests now copy executable modules into disposable runtimes instead of writing the normal database.
+
+### Fixed
+- Required search tags cannot be bypassed by title, description or thought-content matches; exact JSON tag equality replaces wildcard/string-serialization matching.
+- Global ranking now retains weighted field relevance before timestamp/type/ID ties and applies one SQL limit after combining types, rather than discarding relevance in a final timestamp sort.
+- Malformed search query shapes, oversized inputs and invalid limits return client/tool errors instead of crashes, empty success responses or permissive coercion.
+
+### Validation
+- Reproduced tag bypass before the fix with real in-memory SQLite (expected one tagged result; received that result plus two untagged plans).
+- Final integration Jest check: all 10 suites and 139 tests passed, including isolated SQLite regressions and actual loopback HTTP/stdio MCP parity/lifecycle checks. The initial malformed context-key failure was corrected before this passing integration run.
+- Startup contract: 6 passed; real readiness/CI qualification: 13 passed; disposable MCP lifecycle/search smoke returned `ok: true` and one search match.
+- Focused Chromium suite: 12 passed, including delayed genuine HTTP details/404 regressions for newer selections, dismissal, changed/cleared searches and obsolete failures, plus a clock-controlled Enter/debounce regression with a valid detail response held past the debounce deadline. Additional owned, headless browser smoke confirmed ranked global results, exact AND tags, literal percent/type filtering, full modal details and dismissal with no page errors.
+- Limits: literal searches scan canonical rows (no indexed/latency guarantee); case folding is ASCII-only. Historical unrelated UI suites were not exercised.
 
 ## [2.8.0] - 2025-10-06
 

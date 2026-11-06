@@ -8,6 +8,8 @@ let allTags = new Set();
 let thoughts = [];
 let plans = [];
 let context = null;
+let renderVersion = 0;
+let detailVersion = 0;
 
 // === Init ===
 document.addEventListener('DOMContentLoaded', async () => {
@@ -46,9 +48,12 @@ async function loadStats() {
 
 async function loadTags() {
     try {
-        const thoughts = await fetch(`${API_BASE}/thoughts`).then(r => r.json());
-        thoughts.forEach(t => {
-            if (t.tags) t.tags.forEach(tag => allTags.add(tag));
+        const [thoughts, plans] = await Promise.all([
+            fetch(`${API_BASE}/thoughts`).then(r => r.json()),
+            fetch(`${API_BASE}/plans`).then(r => r.json())
+        ]);
+        [...thoughts, ...plans].forEach(item => {
+            (item.tags || []).forEach(tag => allTags.add(tag));
         });
     } catch (e) {
         console.error('Failed to load tags:', e);
@@ -76,15 +81,22 @@ async function loadData() {
 // === Event Listeners ===
 function setupEventListeners() {
     // Search
-    document.getElementById('search-input').addEventListener('input', debounce(e => {
-        currentFilter.search = e.target.value.toLowerCase();
+    let searchTimeout;
+    const updateSearch = value => {
+        currentFilter.search = value.trim();
         render();
-    }, 300));
+    };
+    document.getElementById('search-input').addEventListener('input', e => {
+        // Invalidate details immediately, not only when the debounced search runs.
+        ++detailVersion;
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => updateSearch(e.target.value), 300);
+    });
 
     document.getElementById('search-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') {
-            currentFilter.search = e.target.value.toLowerCase();
-            render();
+            clearTimeout(searchTimeout);
+            updateSearch(e.target.value);
         }
     });
 
@@ -117,11 +129,32 @@ function setupEventListeners() {
 }
 
 // === Rendering ===
-function render() {
+async function render() {
+    const version = ++renderVersion;
+    ++detailVersion;
     const container = document.getElementById('cards-container');
     let items = [];
 
-    if (currentTab === 'thoughts') {
+    if (currentFilter.search) {
+        const params = new URLSearchParams({ q: currentFilter.search, type: currentFilter.type, limit: '50' });
+        currentFilter.tags.forEach(tag => params.append('tags', tag));
+        container.textContent = 'Searching…';
+        try {
+            const response = await fetch(`${API_BASE}/search?${params}`);
+            const results = await response.json();
+            if (version !== renderVersion) return;
+            if (!response.ok) throw new Error(results.error || 'Search failed');
+            items = results.map(result => {
+                const { type, content, ...fields } = result;
+                return type === 'plan'
+                    ? { ...fields, description: content, _type: type }
+                    : { ...fields, content, _type: type };
+            });
+        } catch (error) {
+            if (version === renderVersion) container.textContent = `Search failed: ${error.message}`;
+            return;
+        }
+    } else if (currentTab === 'thoughts') {
         items = thoughts.filter(t => filterItem(t, 'thought'));
     } else if (currentTab === 'plans') {
         items = plans.filter(p => filterItem(p, 'plan'));
@@ -137,7 +170,7 @@ function render() {
         container.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">${currentTab === 'thoughts' ? '💭' : '📋'}</div>
-                <p class="empty-state-text">No ${currentTab} found</p>
+                <p class="empty-state-text">${currentFilter.search ? 'No search results found' : `No ${currentTab} found`}</p>
             </div>
         `;
         return;
@@ -147,27 +180,39 @@ function render() {
     
     // Add click handlers
     container.querySelectorAll('.card').forEach((card, i) => {
-        card.addEventListener('click', () => openModal(items[i]));
+        card.addEventListener('click', async () => {
+            const item = items[i];
+            const selectionVersion = ++detailVersion;
+            if (!currentFilter.search) return openModal(item);
+            // Search summaries intentionally omit CRUD metadata; fetch detail for the modal.
+            try {
+                const response = await fetch(`${API_BASE}/${item._type}s/${item.id}`);
+                if (!response.ok) throw new Error('Could not load result details');
+                const detail = await response.json();
+                if (selectionVersion !== detailVersion) return;
+                openModal({ ...detail, _type: item._type });
+            } catch (error) {
+                if (selectionVersion === detailVersion) container.textContent = error.message;
+            }
+        });
     });
 }
 
 function filterItem(item, type) {
     // Type filter
-    if (currentFilter.type !== 'all' && currentFilter.type !== type) return false;
-    
-    // Search filter
-    if (currentFilter.search) {
-        const searchStr = (item.content || item.title || item.description || '').toLowerCase();
-        if (!searchStr.includes(currentFilter.search)) return false;
-    }
-    
-    // Tag filter
+    if (currentFilter.type !== 'all' && currentFilter.type !== `${type}s`) return false;
+
+    // Match the search API's exact, all-tags, ASCII case-insensitive convention.
     if (currentFilter.tags.length > 0) {
-        const itemTags = item.tags || [];
-        if (!currentFilter.tags.some(tag => itemTags.includes(tag))) return false;
+        const itemTags = (item.tags || []).map(foldTag);
+        if (!currentFilter.tags.every(tag => itemTags.includes(foldTag(tag.trim())))) return false;
     }
     
     return true;
+}
+
+function foldTag(tag) {
+    return tag.replace(/[A-Z]/g, letter => letter.toLowerCase());
 }
 
 function renderCard(item) {
@@ -278,17 +323,11 @@ function openModal(item) {
 }
 
 function closeModal() {
+    ++detailVersion;
     document.getElementById('modal-overlay').style.display = 'none';
 }
 
 // === Utilities ===
-function debounce(fn, delay) {
-    let timeout;
-    return (...args) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn(...args), delay);
-    };
-}
 
 function escapeHtml(str) {
     if (!str) return '';

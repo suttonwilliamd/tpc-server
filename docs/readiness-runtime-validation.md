@@ -31,7 +31,7 @@ node_modules. It does not copy existing data, user JSON, tracked DBs or public a
 The copied server is required, never executed as main. Route imports create routers
 but do not initialize DBs, contact providers, or start listeners.
 
-`initGlobalDB(true)` performs real schema/index/FTS migration while skipping JSON
+`initGlobalDB(true)` performs real schema/index migration (including retiring the old MCP-only FTS artifacts) while skipping JSON
 imports. NODE_ENV=test suppresses backup creation. The test uses a real synthetic
 on-disk DB, not a mock or a misleading `:memory:` global handle. It checks:
 

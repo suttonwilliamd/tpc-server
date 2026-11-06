@@ -1,130 +1,229 @@
 const { test, expect } = require('@playwright/test');
-const { chromium } = require('playwright');
+const path = require('node:path');
+const { once } = require('node:events');
+const { createIsolatedRuntime } = require('../scripts/isolated-runtime');
 
-test.describe('v2.7 Search & Organization E2E', () => {
-  test('Search input fetches and displays combined results', async ({ page }) => {
-    await page.goto('http://localhost:3000');
-    // Wait for initial load
-    await page.waitForSelector('#plans-list li[data-plan-id]');
-    await page.waitForSelector('#thoughts-list li[data-thought-id]');
-  
-    // Type in search input
-    await page.fill('#search-input', 'test');
-    await page.waitForSelector('#search-results li', { state: 'visible' });
-  
-    // Check results are displayed
-    const results = await page.$$('#search-results li');
-    expect(results.length).toBeGreaterThan(0);
-  
-    // Click on a result (plan or thought)
-    await page.click('#search-results li:first-child');
-    await page.waitForSelector('#detail-panel', { state: 'visible' });
-  
-    // Verify detail panel shows
-    await expect(page.locator('#detail-title')).toBeVisible();
-    await expect(page.locator('#tags-list')).toBeVisible();
+test.describe('Unified search UI', () => {
+  test.describe.configure({ mode: 'serial' });
+  let runtime;
+  let database;
+  let db;
+  let server;
+  let base;
+  const special = 'quote"slash\\%_comma,';
+  test.beforeAll(async () => {
+    runtime = await createIsolatedRuntime();
+    database = require(path.join(runtime.root, 'db/database.js'));
+    await database.initGlobalDB(true);
+    db = database.getDB();
+    server = require(path.join(runtime.root, 'server.js')).app.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    base = `http://127.0.0.1:${server.address().port}`;
   });
-
-  test('Tag filtering in lists', async ({ page }) => {
-    await page.goto('http://localhost:3000');
-    // Wait for initial load
-    await page.waitForSelector('#plans-list li[data-plan-id]');
-    await page.waitForSelector('#thoughts-list li[data-thought-id]');
-  
-    // Enter tag filter
-    await page.fill('#tag-filter', 'tag1');
-    await page.waitForTimeout(500); // Wait for load
-  
-    // Check plans list filtered
-    const plans = await page.$$('#plans-list li');
-    expect(plans.length).toBeGreaterThan(0);
-    for (const li of plans) {
-      const text = await li.textContent();
-      expect(text).toContain('tag1');
+  test.afterAll(async () => {
+    try {
+      if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+    } finally {
+      try { if (db) await new Promise((resolve, reject) => db.close(e => e ? reject(e) : resolve())); }
+      finally { if (runtime) await runtime.close(); }
     }
-  
-    // Check thoughts list filtered
-    const thoughts = await page.$$('#thoughts-list li');
-    expect(thoughts.length).toBeGreaterThan(0);
-    for (const li of thoughts) {
-      const text = await li.textContent();
-      expect(text).toContain('tag1');
+  });
+  test.beforeEach(async ({ page }) => {
+    await database.runSql(db, 'DELETE FROM thoughts');
+    await database.runSql(db, 'DELETE FROM plans');
+    await database.runSql(db, 'INSERT INTO plans (title, description, timestamp, tags, status) VALUES (?, ?, ?, ?, ?)', ['needle plan', 'description-only haystack 100%', '2020-01-01T00:00:00Z', JSON.stringify(['needle', 'first', 'second', special]), 'in_progress']);
+    for (const [content, tags] of [['needle thought', ['first']], ['tag-only match', ['needle', 'first', 'second']], ['1000 wildcard decoy', ['unrelated']]]) {
+      await database.runSql(db, 'INSERT INTO thoughts (content, timestamp, tags) VALUES (?, ?, ?)', [content, '2026-01-01T00:00:00Z', JSON.stringify(tags)]);
     }
-  
-    // Clear filter
-    await page.click('#clear-filter');
-    await page.waitForTimeout(500);
-    expect(await page.locator('#tag-filter').inputValue()).toBe('');
+    await page.goto(base);
+    await expect(page.locator('#cards-container .card')).toHaveCount(3);
   });
 
-  test('Context page with search param', async ({ page }) => {
-    // Since context is API, test via navigation or direct, but for UI, assume / loads context via JS, but task is UI, so test if search affects context if implemented, but since context is API, perhaps skip or test API via page.
-    // For E2E, test if search param in URL affects load, but since UI doesn't use /context directly, test search in main page.
-    await page.goto('http://localhost:3000?search=test');
-    await page.waitForLoadState('networkidle');
-    // Wait for initial load
-    await page.waitForSelector('#plans-list li[data-plan-id]');
-    await page.waitForSelector('#thoughts-list li[data-thought-id]');
-  
-    // Assume UI handles ?search, but from code, it doesn't, so perhaps test search input instead.
-    // To complete, test that search works as above.
-    await page.fill('#search-input', 'test');
-    await expect(page.locator('#search-results')).toBeVisible();
+  test('shows global API relevance order and complete plan details', async ({ page }) => {
+    await page.locator('#search-input').fill('needle');
+    await page.locator('#search-input').press('Enter');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan', 'needle thought', 'tag-only match']);
+    await page.locator('.card').first().click();
+    await expect(page.locator('#modal-title')).toHaveText('needle plan');
+    await expect(page.locator('#modal-content')).toHaveText('description-only haystack 100%');
+    await expect(page.locator('#modal-status')).toHaveText('in progress');
+    await page.locator('#modal-close').click();
+    await expect(page.locator('#modal-overlay')).toBeHidden();
   });
 
-  test('Tag editing in detail pages', async ({ page }) => {
-    await page.goto('http://localhost:3000');
-    // Wait for initial load
-    await page.waitForSelector('#plans-list li[data-plan-id]');
-    await page.waitForSelector('#thoughts-list li[data-thought-id]');
-  
-    // Click on a plan to open detail
-    await page.click('#plans-list li:first-child');
-    await page.waitForSelector('#detail-panel', { state: 'visible' });
-    // Wait for details to load
-    await page.waitForSelector('#tags-list li');
-  
-    // Add tag
-    await page.fill('#add-tag-input', 'newtesttag');
-    await page.click('#add-tag-btn');
-    await page.waitForTimeout(500);
-  
-    // Check tag added
-    const tags = await page.$$('#tags-list .tag');
-    expect(tags.length).toBeGreaterThan(0);
-    const lastTagText = await tags[tags.length - 1].textContent();
-    expect(lastTagText).toContain('newtesttag');
-  
-    // Remove tag
-    await page.click('#tags-list .remove-tag:last-child');
-    await page.waitForTimeout(500);
-  
-    // Check removed
-    const updatedTags = await page.$$('#tags-list .tag');
-    expect(updatedTags.length).toBeLessThan(tags.length);
+  test('uses canonical type filters and searches descriptions and decoded tags', async ({ page }) => {
+    await page.locator('#search-input').fill('haystack');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+    await page.locator('#type-filter').selectOption('thoughts');
+    await expect(page.locator('.empty-state-text')).toHaveText('No search results found');
+    await page.locator('#search-input').fill('needle');
+    await expect(page.locator('.card-title')).toHaveText(['needle thought', 'tag-only match']);
+    await page.locator('#type-filter').selectOption('plans');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
   });
 
-  test('Clear search and filter buttons', async ({ page }) => {
-    await page.goto('http://localhost:3000');
-    // Wait for initial load
-    await page.waitForSelector('#plans-list li[data-plan-id]');
-    await page.waitForSelector('#thoughts-list li[data-thought-id]');
-  
-    // Search
-    await page.fill('#search-input', 'test');
-    await expect(page.locator('#search-results')).toBeVisible();
-  
-    // Clear search
-    await page.click('#clear-search');
-    expect(await page.locator('#search-input').inputValue()).toBe('');
-    await expect(page.locator('#search-results')).toHaveCSS('display', 'none');
-  
-    // Filter
-    await page.fill('#tag-filter', 'tag1');
-    await page.waitForTimeout(500);
-  
-    // Clear filter
-    await page.click('#clear-filter');
-    expect(await page.locator('#tag-filter').inputValue()).toBe('');
+  test('requires all selected exact tags, including encoded JSON special characters', async ({ page }) => {
+    await page.locator('#search-input').fill('needle');
+    await expect(page.locator('.card')).toHaveCount(3);
+    await page.getByRole('button', { name: 'first', exact: true }).click();
+    await page.getByRole('button', { name: 'second', exact: true }).click();
+    await expect(page.locator('.card-title')).toHaveText(['needle plan', 'tag-only match']);
+    const request = page.waitForRequest(r => r.url().includes('/search?') && new URL(r.url()).searchParams.getAll('tags').includes(special));
+    await page.getByRole('button', { name: special, exact: true }).click();
+    expect(new URL((await request).url()).searchParams.getAll('tags')).toEqual(['first', 'second', special]);
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+  });
+
+  test('treats percent text literally and clearing search restores all-tag list filtering', async ({ page }) => {
+    await page.locator('#search-input').fill('100%');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+    await page.locator('#search-input').fill('');
+    await expect(page.locator('.card')).toHaveCount(3);
+    await page.getByRole('button', { name: 'first', exact: true }).click();
+    await page.getByRole('button', { name: 'second', exact: true }).click();
+    await expect(page.locator('.card-title')).toHaveText(['tag-only match']);
+    await page.locator('.tab[data-tab="plans"]').click();
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+  });
+
+  test('surfaces API validation errors instead of rendering them as results', async ({ page }) => {
+    await page.locator('#search-input').fill('x'.repeat(2001));
+    await expect(page.locator('#cards-container')).toHaveText('Search failed: q exceeds max length (2000)');
+    await page.locator('#search-input').fill('haystack');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+  });
+
+  test('ignores an older response arriving after a newer query', async ({ page }) => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/search?**', async route => {
+      if (new URL(route.request().url()).searchParams.get('q') === 'needle') await gate;
+      await route.continue();
+    });
+    const oldRequest = page.waitForRequest(r => r.url().includes('/search?') && new URL(r.url()).searchParams.get('q') === 'needle');
+    await page.locator('#search-input').fill('needle');
+    await oldRequest;
+    await page.locator('#search-input').fill('haystack');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+    const oldResponse = page.waitForResponse(r => r.url().includes('/search?') && new URL(r.url()).searchParams.get('q') === 'needle');
+    release();
+    await oldResponse;
+    await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+  });
+
+  async function delayPlanDetail(page) {
+    await page.locator('#search-input').fill('needle');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan', 'needle thought', 'tag-only match']);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/plans/*', async route => {
+      await gate;
+      await route.continue();
+    });
+    const requested = page.waitForRequest(r => /\/plans\/\d+$/.test(new URL(r.url()).pathname));
+    await page.locator('.card').filter({ has: page.getByRole('heading', { name: 'needle plan', exact: true }) }).click();
+    const request = await requested;
+    return {
+      id: Number(new URL(request.url()).pathname.split('/').pop()),
+      async release() {
+        const response = page.waitForResponse(r => r.url() === request.url());
+        release();
+        await (await response).finished();
+        // Observe a paint after the genuine delayed HTTP response, not the
+        // unchanged pre-response DOM. This also drains its fetch/JSON microtasks.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      },
+    };
+  }
+
+  async function selectThought(page) {
+    await page.locator('.card').filter({ has: page.getByRole('heading', { name: 'needle thought', exact: true }) }).click();
+    await expect(page.locator('#modal-title')).toHaveText('needle thought');
+    await expect(page.locator('#modal-overlay')).toBeVisible();
+  }
+
+  test('keeps the latest selection when an older detail response arrives', async ({ page }) => {
+    const delayed = await delayPlanDetail(page);
+    try {
+      await selectThought(page);
+    } finally {
+      await delayed.release();
+    }
+    await expect(page.locator('#modal-title')).toHaveText('needle thought');
+    await expect(page.locator('#modal-overlay')).toBeVisible();
+  });
+
+  test('does not reopen a dismissed modal when an older detail response arrives', async ({ page }) => {
+    const delayed = await delayPlanDetail(page);
+    try {
+      await selectThought(page);
+      await page.locator('#modal-close').click();
+      await expect(page.locator('#modal-overlay')).toBeHidden();
+    } finally {
+      await delayed.release();
+    }
+    await expect(page.locator('#modal-overlay')).toBeHidden();
+  });
+
+  for (const query of ['haystack', '']) {
+    test(`invalidates pending details immediately when search is ${query ? 'changed' : 'cleared'}`, async ({ page }) => {
+      const delayed = await delayPlanDetail(page);
+      try {
+        // Release during the input debounce window: invalidation must happen on
+        // the input event itself, not only when render() eventually starts.
+        await page.locator('#search-input').fill(query);
+      } finally {
+        await delayed.release();
+      }
+      await expect(page.locator('#modal-overlay')).toBeHidden();
+      if (query) {
+        await expect(page.locator('.card-title')).toHaveText(['needle plan']);
+      } else {
+        await expect(page.getByRole('heading', { name: 'needle plan', exact: true })).toHaveCount(0);
+        expect((await page.locator('.card-title').allTextContents()).sort()).toEqual(
+          ['needle thought', 'tag-only match', '1000 wildcard decoy'].sort());
+      }
+    });
+  }
+
+  test('ignores an obsolete real detail error without replacing current results or modal', async ({ page }) => {
+    const delayed = await delayPlanDetail(page);
+    try {
+      // The delayed request will receive a real 404 from the disposable server.
+      await database.runSql(db, 'DELETE FROM plans WHERE id = ?', [delayed.id]);
+      await selectThought(page);
+    } finally {
+      await delayed.release();
+    }
+    await expect(page.locator('#modal-title')).toHaveText('needle thought');
+    await expect(page.locator('#modal-overlay')).toBeVisible();
+    await expect(page.locator('.card-title')).toHaveText(['needle plan', 'needle thought', 'tag-only match']);
+  });
+
+  test('Enter cancels queued input debounce so a valid delayed detail still opens', async ({ page }) => {
+    // Control the debounce clock, but keep all search/detail HTTP responses real.
+    await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+    await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/plans/*', async route => {
+      await gate;
+      await route.continue();
+    });
+    await page.locator('#search-input').fill('needle');
+    await page.locator('#search-input').press('Enter');
+    await expect(page.locator('.card-title')).toHaveText(['needle plan', 'needle thought', 'tag-only match']);
+    const requested = page.waitForRequest(r => /\/plans\/\d+$/.test(new URL(r.url()).pathname));
+    await page.locator('.card').filter({ has: page.getByRole('heading', { name: 'needle plan', exact: true }) }).click();
+    await requested;
+    try {
+      // A queued duplicate render would fire here and invalidate this selection.
+      await page.clock.runFor(301);
+    } finally {
+      release();
+    }
+    await expect(page.locator('#modal-overlay')).toBeVisible();
+    await expect(page.locator('#modal-title')).toHaveText('needle plan');
+    await expect(page.locator('#modal-content')).toHaveText('description-only haystack 100%');
   });
 });

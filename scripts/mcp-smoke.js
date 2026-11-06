@@ -1,17 +1,19 @@
 const path = require('path');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { createIsolatedRuntime } = require('./isolated-runtime');
 
 async function run() {
+  const runtime = await createIsolatedRuntime();
   const client = new Client({ name: 'tpc-smoke', version: '1.0.0' }, { capabilities: {} });
   const transport = new StdioClientTransport({
     command: 'node',
-    args: [path.join(__dirname, '..', 'mcp-server.js')],
+    args: [path.join(runtime.root, 'mcp-server.js')],
   });
 
-  await client.connect(transport);
 
   try {
+    await client.connect(transport);
     const tools = await client.listTools();
     const required = new Set([
       'get_context',
@@ -19,6 +21,7 @@ async function run() {
       'update_plan',
       'create_thought',
       'list_thoughts',
+      'search_thoughts',
     ]);
     const found = new Set(tools.tools.map((t) => t.name));
     for (const name of required) {
@@ -77,6 +80,13 @@ async function run() {
     const ctx = JSON.parse(context.content[0].text);
 
     const foundThought = thoughtList.some((t) => t.id === createdThought.id);
+    const search = await client.callTool({
+      name: 'search_thoughts',
+      arguments: { q: marker, tags: ['verification'] },
+    });
+    if (search.isError) throw new Error(`search_thoughts failed: ${JSON.stringify(search)}`);
+    const searchResults = JSON.parse(search.content[0].text);
+    if (searchResults.length !== 1 || searchResults[0].id !== createdThought.id) throw new Error('Search did not find exactly the lifecycle thought');
     if (!foundThought) throw new Error('Created thought not visible in list_thoughts response');
 
     const result = {
@@ -85,11 +95,13 @@ async function run() {
       thought_id: createdThought.id,
       open_plans: Array.isArray(ctx.plans) ? ctx.plans.length : -1,
       recent_thoughts: Array.isArray(ctx.recent_thoughts) ? ctx.recent_thoughts.length : -1,
+      search_matches: searchResults.length,
     };
 
     console.log(JSON.stringify(result));
   } finally {
     await client.close();
+    await runtime.close();
   }
 }
 

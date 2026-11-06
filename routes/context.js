@@ -2,6 +2,7 @@ const express = require('express');
 const { Router } = express;
 const path = require('path');
 const { getDB } = require('../db/database.js');
+const { buildSearchQuery } = require('../db/search.js');
 
 const router = Router();
 
@@ -19,18 +20,21 @@ async function getAll(db, sql, params = []) {
 // GET /
 router.get('/', async (req, res, next) => {
   try {
+    const unknown = Object.keys(req.query).find(key => key !== 'search');
+    if (unknown) return res.status(400).json({ error: `Unknown context parameter: ${unknown}` });
     const db = req.db || getDB();
-    const searchQuery = req.query.search ? req.query.search.toString().trim() : '';
-    const escapedQuery = searchQuery ? `%${searchQuery}%` : '%';
-
-    let incompletePlansQuery = "SELECT * FROM plans WHERE status != 'completed'";
-    let plansParams = [];
-    if (searchQuery) {
-      incompletePlansQuery += " AND (title LIKE ? OR description LIKE ? OR tags LIKE ?)";
-      plansParams = [escapedQuery, escapedQuery, escapedQuery];
+    const searchQuery = req.query.search;
+    let incompletePlansRaw;
+    let filteredThoughtsRaw;
+    if (searchQuery !== undefined) {
+      const plans = buildSearchQuery({ q: searchQuery, type: 'plans', limit: 50 }, { incompletePlans: true, fullRows: true });
+      const thoughts = buildSearchQuery({ q: searchQuery, type: 'thoughts', limit: 10 }, { fullRows: true });
+      incompletePlansRaw = await getAll(db, plans.sql, plans.params);
+      filteredThoughtsRaw = await getAll(db, thoughts.sql, thoughts.params);
+    } else {
+      incompletePlansRaw = await getAll(db, "SELECT * FROM plans WHERE status != 'completed' ORDER BY timestamp ASC");
+      filteredThoughtsRaw = await getAll(db, 'SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 10');
     }
-    incompletePlansQuery += " ORDER BY timestamp ASC";
-    const incompletePlansRaw = await getAll(db, incompletePlansQuery, plansParams);
     const incompletePlans = incompletePlansRaw.map(p => ({
       id: p.id,
       title: p.title,
@@ -45,14 +49,7 @@ router.get('/', async (req, res, next) => {
       tags: JSON.parse(p.tags || '[]')
     }));
 
-    let thoughtsQuery = "SELECT * FROM thoughts";
-    let thoughtsParams = [];
-    if (searchQuery) {
-      thoughtsQuery += " WHERE (content LIKE ? OR tags LIKE ?)";
-      thoughtsParams = [escapedQuery, escapedQuery];
-    }
-    thoughtsQuery += " ORDER BY timestamp DESC LIMIT 10";
-    const filteredThoughtsRaw = await getAll(db, thoughtsQuery, thoughtsParams);
+    // Preserve the context response shape; search-only score/type columns stay internal.
     const last10Thoughts = filteredThoughtsRaw.map(t => ({
       id: t.id.toString(),
       content: t.content,
